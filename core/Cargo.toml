@@ -1,0 +1,14 @@
+# Verified core — checked with Verus, not built with cargo in the normal flow.
+# Verify with:   ./tools/verus core/src/lib.rs
+#
+# `vstd` is supplied by the Verus toolchain during verification. A matching
+# crates.io `vstd` pin would be added here only if/when this crate is compiled
+# via `cargo-verus` and linked into the app. For the smoke test it is verified
+# standalone, exactly like the reference `hello_verus` project.
+[package]
+name = "ten-cent-poker-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]

@@ -1,0 +1,20 @@
+[package]
+name = "poker-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "poker"
+path = "src/main.rs"
+
+[dependencies]
+poker-wallet = { path = "../wallet" }
+poker-crypto = { path = "../crypto" }
+poker-net = { path = "../net" }
+eframe = { version = "0.34.3", optional = true }
+
+[features]
+# Compiles the egui/eframe desktop window. Off by default so the headless smoke
+# build needs no display libraries. Launch with: cargo run -p poker-app --features gui -- --gui
+gui = ["dep:eframe"]

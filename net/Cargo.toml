@@ -1,0 +1,8 @@
+[package]
+name = "poker-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+libp2p = { version = "0.56.0", default-features = false, features = ["ed25519"] }

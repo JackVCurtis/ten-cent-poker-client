@@ -1,0 +1,15 @@
+# Rust build output
+/target
+**/target
+
+# Vendored Verus toolchain (large binaries: verus, z3, rust_verify, vstd) — built locally
+/tools
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+*.rs.bk
+.DS_Store

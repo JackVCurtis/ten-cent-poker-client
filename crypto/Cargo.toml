@@ -1,0 +1,15 @@
+[package]
+name = "poker-crypto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ark-bn254 = "0.6.0"
+ark-ec = "0.6.0"
+ark-ff = "0.6.0"
+ark-groth16 = "0.6.0"
+ark-relations = "0.6.0"
+ark-serialize = "0.6.0"
+ark-snark = "0.6.0"
+ark-std = "0.6.0"

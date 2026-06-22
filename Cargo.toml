@@ -1,0 +1,21 @@
+# Ten-Cent Poker — client workspace.
+#
+# `core/` is intentionally NOT a workspace member: it is the formally-verified,
+# pure synchronous logic and is checked with Verus (`./tools/verus core/src/lib.rs`),
+# not `cargo build`. Keeping it out of the cargo build avoids coupling the async
+# crates to a crates.io `vstd` pin. The async/IO/GUI crates below are ordinary Rust.
+[workspace]
+resolver = "2"
+members = ["wallet", "crypto", "net", "app"]
+exclude = ["core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["ten-cent-poker"]
+
+[workspace.dependencies]
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
