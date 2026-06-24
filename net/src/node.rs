@@ -72,6 +72,12 @@ pub enum NodeEvent {
         addr: Option<Multiaddr>,
         error: String,
     },
+    /// UPnP-IGD mapped a port and discovered our external address: remote hosting should work
+    /// without a manual port-forward. Informational (the address is also folded into the URI).
+    UpnpExternalAddr(Multiaddr),
+    /// UPnP-IGD is unavailable — no IGD gateway was found, or the gateway's own external address is
+    /// non-routable (e.g. CGNAT). Remote hosting will need a public-IP host or a manual port-forward.
+    UpnpUnavailable,
 }
 
 /// Commands sent to the swarm task. Internal; drive these through [`NodeHandle`].
@@ -896,6 +902,7 @@ fn handle_behaviour_event(
         }
         PokerBehaviourEvent::Upnp(upnp_ev) => match upnp_ev {
             libp2p::upnp::Event::NewExternalAddr(addr) => {
+                emit(events, NodeEvent::UpnpExternalAddr(addr.clone()));
                 book.add_external(addr);
                 if is_host {
                     maybe_emit_uri(book, last_uri, events);
@@ -905,6 +912,7 @@ fn handle_behaviour_event(
                 // Terminal "no UPnP help" signal: the URI falls back to LAN addresses, so it is now
                 // fair to warn (MEDIUM-2) without waiting for the grace timer. `maybe_warn` is
                 // one-shot, so this races harmlessly with the grace timer — whichever fires first.
+                emit(events, NodeEvent::UpnpUnavailable);
                 if is_host {
                     maybe_warn(book, warned, events);
                 }

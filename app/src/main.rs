@@ -33,8 +33,97 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.get(1).map(String::as_str) {
         Some("host") => run_cli_host(&args),
         Some("join") => run_cli_join(&args),
+        Some("netcheck") => run_netcheck(),
         _ => smoke(),
     }
+}
+
+/// `poker netcheck` — probe whether this machine can host for REMOTE players: stand up a node for
+/// ~10s and report what the real game's UPnP-IGD + interface discovery finds. Prints whether UPnP
+/// mapped an external address, the discovered listen addresses, and an overall remote-hosting verdict.
+fn run_netcheck() -> Result<(), Box<dyn std::error::Error>> {
+    use poker_net::{
+        classify_multiaddr, decode_table_uri, host, is_internet_routable, Node, NodeEvent,
+    };
+    use tokio::time::{timeout_at, Duration, Instant};
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        println!("netcheck: probing reachability (UPnP + network interfaces) for ~10s…\n");
+        let Node { handle, mut events } = host(None)?;
+        let deadline = Instant::now() + Duration::from_secs(10);
+
+        // Some(Some(addr)) = UPnP mapped; Some(None) = UPnP reported unavailable; None = no response.
+        let mut upnp: Option<Option<String>> = None;
+        let mut best_uri: Option<String> = None;
+        let mut warning: Option<String> = None;
+        let mut listen: Vec<String> = Vec::new();
+
+        loop {
+            match timeout_at(deadline, events.recv()).await {
+                Err(_) | Ok(None) => break, // 10s elapsed, or node stopped
+                Ok(Some(ev)) => match ev {
+                    NodeEvent::NewListenAddr(a) => {
+                        let cls = classify_multiaddr(&a);
+                        listen.push(format!("  {a}  [{cls:?}]"));
+                    }
+                    NodeEvent::UpnpExternalAddr(a) => upnp = Some(Some(a.to_string())),
+                    NodeEvent::UpnpUnavailable => {
+                        if upnp.is_none() {
+                            upnp = Some(None);
+                        }
+                    }
+                    NodeEvent::TableUriReady(u) => best_uri = Some(u),
+                    NodeEvent::ReachabilityWarning(r) => warning = Some(format!("{r:?}")),
+                    _ => {}
+                },
+            }
+        }
+        handle.shutdown().await;
+
+        println!("listen addresses:");
+        if listen.is_empty() {
+            println!("  (none discovered)");
+        }
+        for l in &listen {
+            println!("{l}");
+        }
+        println!();
+
+        match &upnp {
+            Some(Some(addr)) => println!("UPnP : ✅ available — mapped external address {addr}"),
+            Some(None) => {
+                println!("UPnP : ❌ unavailable (no IGD gateway, or the gateway is non-routable/CGNAT)")
+            }
+            None => println!("UPnP : ❔ no response within 10s (likely no UPnP-IGD gateway on this network)"),
+        }
+
+        let upnp_ok = matches!(upnp, Some(Some(_)));
+        let routable_uri = best_uri
+            .as_deref()
+            .and_then(|u| decode_table_uri(u).ok())
+            .map(|addrs| addrs.iter().any(is_internet_routable))
+            .unwrap_or(false);
+
+        println!();
+        if upnp_ok || routable_uri {
+            println!("Remote hosting: ✅ you appear to have a routable address — you can host for remote players.");
+            if let Some(u) = &best_uri {
+                println!("  shareable URI: {u}");
+            }
+        } else {
+            println!("Remote hosting: ❌ no routable address found.");
+            if let Some(w) = &warning {
+                println!("  reachability: {w}");
+            }
+            println!("  To host remotely, do ONE of:");
+            println!("    • enable UPnP-IGD on your router, or");
+            println!("    • set a fixed Listen port in the host lobby and forward that TCP+UDP port, or");
+            println!("    • host from a machine with a public IP.");
+            println!("  (Same-LAN play works regardless of the above.)");
+        }
+        Ok::<_, Box<dyn std::error::Error>>(())
+    })
 }
 
 /// Default number of hands to play in the headless demo (overridable via `host <n>`).

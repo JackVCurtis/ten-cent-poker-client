@@ -35,6 +35,7 @@ cargo run -p poker-app           # headless smoke: prints a wallet address, a ta
 cargo run -p poker-app --features gui -- --gui   # launch the egui desktop window (needs a display)
 cargo run -p poker-app -- host                   # headless CLI host (bot player)
 cargo run -p poker-app -- join <tcpoker://…>     # headless CLI join (bot player)
+cargo run -p poker-app -- netcheck               # can I host remotely? (probes UPnP + reachability)
 ```
 
 The headless smoke output looks like:
@@ -66,7 +67,9 @@ the deal is trustless), the shared board and pot, and acts on their turn (fold/c
 - **Same Wi-Fi/LAN:** works out of the box. The host's URI carries its private (`192.168.x.x`)
   address; guests dial it directly (mDNS may also auto-discover). Just copy/paste the URI.
 - **Remote / over the internet:** only the **host** needs to be reachable from outside (guests dial
-  out). The reliable options, in order:
+  out). Run `cargo run -p poker-app -- netcheck` first to see whether you can host — it reports
+  whether UPnP mapped a public address and gives an overall remote-hosting verdict. The reliable
+  options, in order:
   1. **Public IP / VPS host** — the host's URI carries its public address directly; nothing else to do.
   2. **UPnP-capable router** — the host maps a port and learns its public address automatically; the
      URI is dialable as-is.
