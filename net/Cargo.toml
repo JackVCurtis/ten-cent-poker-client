@@ -5,4 +5,35 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-libp2p = { version = "0.56.0", default-features = false, features = ["ed25519"] }
+# Full transport + behaviour stack for the bounded-serverless P2P design (M3):
+#   - quic/tcp + noise + yamux: dialable transports (QUIC carries its own TLS+mux).
+#   - request-response + gossipsub: turn-based RPC + table broadcast.
+#   - identify + ping: peer info exchange + liveness.
+#   - mdns: same-LAN zero-config discovery.
+#   - upnp: UPnP-IGD port mapping AND external-address discovery (no STUN server).
+#   - macros: #[derive(NetworkBehaviour)].
+libp2p = { version = "0.56.0", default-features = false, features = [
+    "tokio",
+    "tcp",
+    "quic",
+    "dns",
+    "noise",
+    "yamux",
+    "request-response",
+    "gossipsub",
+    "identify",
+    "ping",
+    "mdns",
+    "upnp",
+    "macros",
+    "ed25519",
+] }
+bs58 = "0.5"
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+futures = "0.3"
+async-trait = "0.1"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }

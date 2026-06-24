@@ -1,0 +1,34 @@
+# Vendored from geometryxyz/mental-poker (barnett-smart-card-protocol).
+# Ported: arkworks 0.3 -> 0.6, Starknet curve -> Baby Jubjub (ark-ed-on-bn254).
+# See ../README.md for provenance and license.
+#
+# STATUS (M2 phase 1): NOT YET PORTED. Dependencies are retargeted to 0.6 for
+# coherence, but the source (discrete_log_cards/*) is still on the arkworks 0.3
+# API and depends on the not-yet-ported proof-essentials zkp arguments layer.
+# Do not expect this crate to build until the arguments layer is ported.
+[package]
+name = "barnett-smart-card-protocol"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+anyhow = "1.0.55"
+ark-crypto-primitives = "0.6"
+ark-ec = "0.6"
+ark-ff = "0.6"
+ark-serialize = "0.6"
+ark-std = { version = "0.6", features = ["std"] }
+ark-ed-on-bn254 = "0.6"          # Baby Jubjub (replaces starknet-curve)
+blake2 = { version = "0.10", default-features = false }
+digest = { version = "0.10" }
+merlin = "3.0.0"
+proof-essentials = { path = "../proof-essentials" }
+rand = "0.8.4"
+thiserror = "1.0.30"
+# NOTE (M2 port): ark-marlin removed; FiatShamirRng now lives in
+# proof_essentials::zkp::fiat_shamir_rng.
+
+# NOTE (M2 port): the upstream `examples/round.rs` benchmark and its
+# dev-dependencies (ark-bls12-377, byte-unit) were dropped during the port;
+# the N-player round-trip is exercised by the in-tree tests instead.

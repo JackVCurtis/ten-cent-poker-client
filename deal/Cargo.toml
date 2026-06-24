@@ -1,0 +1,22 @@
+[package]
+name = "poker-deal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+poker-game = { path = "../game" }
+thiserror = { workspace = true }
+
+# M2: the real trustless deal. Barnett-Smart mental poker over Baby Jubjub.
+barnett-smart-card-protocol = { path = "../vendor/barnett-smart-card-protocol" }
+proof-essentials = { path = "../vendor/proof-essentials" }
+ark-ec = "0.6"
+ark-ff = "0.6"
+ark-std = { version = "0.6", features = ["std"] }
+ark-serialize = "0.6"
+rand = "0.8.4"
+rand_chacha = "0.3"
+
+[dev-dependencies]
+rand = "0.8.4"

@@ -1,0 +1,20 @@
+[package]
+name = "poker-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+poker-game = { path = "../game" }
+poker-deal = { path = "../deal" }
+poker-net = { path = "../net" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+libp2p = { version = "0.56.0", default-features = false, features = ["ed25519"] }
+tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
+futures = "0.3"
+rand = "0.8.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }

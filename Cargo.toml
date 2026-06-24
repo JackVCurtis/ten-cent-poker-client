@@ -6,7 +6,21 @@
 # crates to a crates.io `vstd` pin. The async/IO/GUI crates below are ordinary Rust.
 [workspace]
 resolver = "2"
-members = ["wallet", "crypto", "net", "app"]
+members = [
+    "wallet",
+    "crypto",
+    "net",
+    "game",
+    "deal",
+    "protocol",
+    "app",
+    "vendor/proof-essentials",
+    "vendor/barnett-smart-card-protocol",
+]
+# `core/` is Verus-verified and checked with `./verify.sh`, not cargo (see below).
+# The vendored Geometry mental-poker crates (`vendor/proof-essentials`,
+# `vendor/barnett-smart-card-protocol`) are now ported to arkworks 0.6 + Baby Jubjub
+# and are workspace members (M2 Integrate). Only `core/` remains excluded.
 exclude = ["core"]
 
 [workspace.package]
