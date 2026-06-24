@@ -157,6 +157,9 @@ pub struct HostOptions {
     /// wire so no peer (the host included) can see another peer's hole cards. The placeholder
     /// path is retained only for fast/legacy demos and tests.
     pub mental: bool,
+    /// Fixed listen port for the host node, or `None` for an OS-assigned ephemeral port. Set this to
+    /// a port forwarded on the router for remote play behind NAT. See [`poker_net::NodeConfig`].
+    pub listen_port: Option<u16>,
 }
 
 impl Default for HostOptions {
@@ -172,6 +175,8 @@ impl Default for HostOptions {
             enable_mdns: true,
             // Trustless by default: real networked play must hide cards.
             mental: true,
+            // Ephemeral port by default; set for a NAT'd host that has forwarded a fixed port.
+            listen_port: None,
         }
     }
 }
@@ -458,6 +463,7 @@ where
         opts.keypair.clone(),
         poker_net::NodeConfig {
             enable_mdns: opts.enable_mdns,
+            listen_port: opts.listen_port,
         },
     )?;
     let Node { handle, mut events } = node;
@@ -650,7 +656,15 @@ async fn run_guest_generic(
     // first StartHand. If the URI somehow lacks a PeerId we fall back to trust-on-first-StartHand.
     let expected_host = host_peer_id_from_uri(uri);
 
-    let node = poker_net::join_with_config(uri, keypair, poker_net::NodeConfig { enable_mdns })?;
+    let node = poker_net::join_with_config(
+        uri,
+        keypair,
+        poker_net::NodeConfig {
+            enable_mdns,
+            // Guests only dial outbound, so their listen port is irrelevant — leave it ephemeral.
+            listen_port: None,
+        },
+    )?;
     let Node { handle, mut events } = node;
     let me = handle.local_peer_id();
 

@@ -20,6 +20,7 @@ async fn host_and_guest_play_three_hands_and_agree() {
         // Fast multi-hand agreement check: use the placeholder deal (the trustless deal is
         // exercised end-to-end over the wire in `networked_hand.rs`).
         mental: false,
+        listen_port: None,
     };
 
     // Host runs in a task; it surfaces the URI via a oneshot so the guest can join.

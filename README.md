@@ -29,22 +29,53 @@ ordinary cargo workspace (`wallet`, `crypto`, `net`, `app`).
 ## Build & run (cargo)
 
 ```bash
-cargo build                      # builds wallet + crypto + net + app
-cargo test                       # unit tests across the crates
+cargo build                      # builds wallet + crypto + net + game + deal + protocol + app
+cargo test                       # full test suite (incl. real-network trustless-hand tests)
 cargo run -p poker-app           # headless smoke: prints a wallet address, a table URI, BN254 check
 cargo run -p poker-app --features gui -- --gui   # launch the egui desktop window (needs a display)
+cargo run -p poker-app -- host                   # headless CLI host (bot player)
+cargo run -p poker-app -- join <tcpoker://…>     # headless CLI join (bot player)
 ```
-
-> On the 9p shared mount in the dev VM, build to local disk to avoid proc-macro `.so`
-> dlopen segfaults: `export CARGO_TARGET_DIR=$HOME/poker-client-target`. Not needed on a Mac host.
 
 The headless smoke output looks like:
 
 ```
 wallet : account 0 address = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-net    : table URI         = tencentpoker:/ip4/127.0.0.1/udp/9000/quic-v1/p2p/12D3Koo…
+net    : table URI         = tcpoker://3xZ8q…              (one opaque base58 token)
 crypto : BN254 scalar field = 254 bits (g·42 computed)
 ```
+
+## Playing a networked game (GUI)
+
+Launch the desktop client on each machine and **Host** or **Join** from the lobby:
+
+```bash
+cargo run -p poker-app --features gui -- --gui
+```
+
+- **Host:** pick the number of players (e.g. 3), keep *Trustless dealing* on, click **Host**, then
+  copy the `tcpoker://…` URI and send it to the other players. macOS will prompt to **Allow**
+  incoming connections the first time — accept it.
+- **Join:** paste the host's `tcpoker://…` URI and click **Join**. (Accept the firewall prompt too.)
+
+Once everyone is seated the host deals; each player sees their own hole cards (no one else can —
+the deal is trustless), the shared board and pot, and acts on their turn (fold/check/call/bet/raise).
+
+### Same-LAN vs remote
+
+- **Same Wi-Fi/LAN:** works out of the box. The host's URI carries its private (`192.168.x.x`)
+  address; guests dial it directly (mDNS may also auto-discover). Just copy/paste the URI.
+- **Remote / over the internet:** only the **host** needs to be reachable from outside (guests dial
+  out). The reliable options, in order:
+  1. **Public IP / VPS host** — the host's URI carries its public address directly; nothing else to do.
+  2. **UPnP-capable router** — the host maps a port and learns its public address automatically; the
+     URI is dialable as-is.
+  3. **Manual port-forward** — set a fixed *Listen port* in the host lobby, forward that TCP+UDP
+     port on the router to the host machine, and share the URI.
+
+  If the host's best address is not internet-routable (e.g. behind CGNAT with no UPnP/forward), the
+  lobby shows a ⚠ reachability warning — pick a different host (public IP / UPnP) in that case. There
+  is no relay/TURN fallback.
 
 ## Formal verification (Verus)
 
@@ -72,16 +103,20 @@ Per the `hello_verus` convention this has a *negative test*: deleting the load-b
 
 ## Table-URI discovery
 
-A table is a `Multiaddr` ending in `/p2p/<PeerId>`, wrapped in the `tencentpoker:` scheme, e.g.
+A table's dialable `Multiaddr`(s) (each ending in `/p2p/<PeerId>`) are packed into one compact,
+base58-encoded `tcpoker://` token — a single copy-paste-safe string with no `/` or whitespace for
+chat clients to mangle, e.g.
 
 ```
-tencentpoker:/ip4/203.0.113.7/udp/9000/quic-v1/p2p/12D3KooW...
+tcpoker://3xZ8qF7…WkP2
 ```
 
 Anyone you send that string to can dial directly into the table — no DHT, no rendezvous server.
 
 ## Status
 
-Initial scaffold: dependency stack pinned and building, a runnable headless smoke test, and a
-verified `core`. Next milestones are the Barnett–Smart mental-poker shuffle, the settlement circuit
-(exported to the contract's `Verifier.sol`), the libp2p swarm, and the egui table UI.
+The P2P stack is end-to-end functional: trustless (Barnett–Smart mental-poker) dealing over libp2p,
+the replicated betting state machine, and an egui desktop client for human play. The trustless deal
+rounds use reliable request-response delivery, so networked hands complete without the former
+showdown stall (see `KNOWN_ISSUES.md`). Remaining work: the Groth16 settlement circuit (exported to
+the contract's `Verifier.sol`) and on-chain buy-in/settlement.

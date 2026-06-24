@@ -44,6 +44,8 @@ struct PokerApp {
     join_uri: String,
     seats: usize,
     mental: bool,
+    /// Optional fixed listen port (for port-forwarding to host remotely). Empty = ephemeral.
+    port: String,
     // Action-bar bet/raise amount.
     bet_to: u64,
 }
@@ -64,6 +66,7 @@ impl PokerApp {
             join_uri: String::new(),
             seats: 3,
             mental: true,
+            port: String::new(),
             bet_to: 0,
         }
     }
@@ -81,6 +84,8 @@ impl PokerApp {
             hands: SESSION_HANDS,
             min_players: self.seats,
             mental: self.mental,
+            // Empty or unparseable → ephemeral port; a value pins it for port-forwarding.
+            listen_port: self.port.trim().parse().ok(),
             ..HostOptions::default()
         };
         let state = self.state.clone();
@@ -165,6 +170,15 @@ impl PokerApp {
                 ui.add(egui::DragValue::new(&mut self.seats).range(2..=9));
             });
             ui.checkbox(&mut self.mental, "Trustless dealing (hides hole cards; recommended)");
+            ui.horizontal(|ui| {
+                ui.label("Listen port:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.port)
+                        .hint_text("auto")
+                        .desired_width(80.0),
+                );
+                ui.label("(set + forward this port on your router to host remotely)");
+            });
             if ui.button("Host").clicked() {
                 self.start_host();
             }
@@ -405,6 +419,11 @@ impl eframe::App for PokerApp {
     // eframe 0.34: the framework hands us the central `Ui` directly.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.reap_driver();
+        // While a game is running, keep the UI ticking so a silent driver exit (e.g. a peer leaving,
+        // which emits no observer update) is reaped promptly and live state stays fresh.
+        if self.driver.is_some() {
+            ui.ctx().request_repaint_after(Duration::from_millis(500));
+        }
         match self.screen {
             Screen::Lobby => self.lobby_ui(ui),
             Screen::Table => self.table_ui(ui),

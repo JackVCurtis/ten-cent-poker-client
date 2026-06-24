@@ -304,12 +304,19 @@ pub struct NodeConfig {
     /// explicitly via the table URI: there, mDNS only causes unrelated test tables on loopback to
     /// auto-mesh and perturb each other's gossipsub mesh formation.
     pub enable_mdns: bool,
+    /// Fixed TCP+UDP listen port, or `None` for an OS-assigned ephemeral port. A remote host behind
+    /// NAT sets this to a known port it has manually forwarded on its router, so the same port works
+    /// run-to-run. Guests (which only dial outbound) leave it `None`.
+    pub listen_port: Option<u16>,
 }
 
 impl Default for NodeConfig {
     fn default() -> Self {
-        // Real play: mDNS on.
-        NodeConfig { enable_mdns: true }
+        // Real play: mDNS on, ephemeral port.
+        NodeConfig {
+            enable_mdns: true,
+            listen_port: None,
+        }
     }
 }
 
@@ -398,10 +405,16 @@ fn spawn_node(
         .subscribe(&topic)
         .map_err(|e| NetError::Subscribe(e.to_string()))?;
 
-    // Listen on ephemeral QUIC and TCP ports.
+    // Listen on QUIC and TCP. `port = 0` is an OS-assigned ephemeral port (the default); a fixed
+    // port lets a NAT'd host forward a stable port for remote play.
+    let port = config.listen_port.unwrap_or(0);
     for addr in [
-        "/ip4/0.0.0.0/udp/0/quic-v1".parse::<Multiaddr>().unwrap(),
-        "/ip4/0.0.0.0/tcp/0".parse::<Multiaddr>().unwrap(),
+        format!("/ip4/0.0.0.0/udp/{port}/quic-v1")
+            .parse::<Multiaddr>()
+            .unwrap(),
+        format!("/ip4/0.0.0.0/tcp/{port}")
+            .parse::<Multiaddr>()
+            .unwrap(),
     ] {
         swarm
             .listen_on(addr.clone())

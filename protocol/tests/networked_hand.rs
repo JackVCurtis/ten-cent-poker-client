@@ -141,6 +141,7 @@ async fn two_real_peers_play_one_hand_and_agree() {
         enable_mdns: false,
         // TRUSTLESS: drive the real Barnett–Smart distributed deal over the wire.
         mental: true,
+        listen_port: None,
     };
 
     let (host, uri_rx) = spawn_host(opts).await;
@@ -210,6 +211,7 @@ async fn three_real_peers_play_one_hand_and_agree() {
         enable_mdns: false,
         // TRUSTLESS: three real peers run the distributed deal over the wire.
         mental: true,
+        listen_port: None,
     };
 
     let (host, uri_rx) = spawn_host(opts).await;
@@ -314,6 +316,7 @@ async fn interactive_two_peers_play_one_hand_and_agree() {
         keypair: None,
         enable_mdns: false,
         mental: true,
+        listen_port: None,
     };
 
     let (host_tx, host_rx) = tokio::sync::mpsc::channel::<Action>(1);
