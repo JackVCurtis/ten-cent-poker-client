@@ -13,10 +13,13 @@ poker-wallet = { path = "../wallet" }
 poker-crypto = { path = "../crypto" }
 poker-net = { path = "../net" }
 poker-protocol = { path = "../protocol" }
+# Pure poker types (Card/Rank/Suit/BettingState/Street) the GUI renders. Optional: only the egui
+# window needs them; the headless build does not. Pulled in transitively via poker-protocol anyway.
+poker-game = { path = "../game", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 eframe = { version = "0.34.3", optional = true }
 
 [features]
 # Compiles the egui/eframe desktop window. Off by default so the headless smoke
 # build needs no display libraries. Launch with: cargo run -p poker-app --features gui -- --gui
-gui = ["dep:eframe"]
+gui = ["dep:eframe", "dep:poker-game"]

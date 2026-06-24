@@ -19,6 +19,8 @@ use poker_protocol::{
 use poker_wallet::{derive_address, DEV_MNEMONIC};
 
 #[cfg(feature = "gui")]
+mod gui_state;
+#[cfg(feature = "gui")]
 mod ui;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -15,7 +15,10 @@
 //!   (c) chips are conserved (per-hand deltas sum to zero, and final stacks sum to the total
 //!       chips put on the table).
 
-use poker_protocol::{run_guest_with_config, run_host, CallStationBot, GameReport, HostOptions};
+use poker_protocol::{
+    run_guest_interactive, run_guest_with_config, run_host, run_host_interactive, Action,
+    CallStationBot, DriverUpdate, GameReport, HostOptions,
+};
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -274,4 +277,90 @@ async fn three_real_peers_play_one_hand_and_agree() {
     assert_outcome_well_formed(host_outcome, total_chips, n_seats);
     assert_outcome_well_formed(guest_a_outcome, total_chips, n_seats);
     assert_outcome_well_formed(guest_b_outcome, total_chips, n_seats);
+}
+
+/// Observer stand-in for a human: when it is our turn, send a check (if free) or a call. Used by
+/// the interactive test to drive a hand through the GUI's action channel without a real UI.
+fn auto_call(tx: &tokio::sync::mpsc::Sender<Action>, u: DriverUpdate) {
+    if let DriverUpdate::State(t) = u {
+        if t.is_local_turn() {
+            if let (Some(seat), Some(b)) = (t.local_seat(), t.betting()) {
+                let action = if b.to_call(seat) == 0 {
+                    Action::Check
+                } else {
+                    Action::Call
+                };
+                let _ = tx.try_send(action);
+            }
+        }
+    }
+}
+
+/// Two REAL nodes play one hand driven through the INTERACTIVE drivers (the GUI's code path): each
+/// seat's action is supplied asynchronously on a channel rather than by an inline bot. An observer
+/// auto-supplies check/call on the local turn, standing in for a human clicking — proving the
+/// human-action bridge (`OneShot` + the `next_action` select arm) drives a full trustless hand to
+/// agreement without stalling, and that the bot path's reliability fix carries over to it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn interactive_two_peers_play_one_hand_and_agree() {
+    let _serial = net_test_lock().lock().await;
+    let starting_stack = 1000u64;
+    let opts = HostOptions {
+        hands: 1,
+        starting_stack,
+        small_blind: 5,
+        big_blind: 10,
+        min_players: 2,
+        keypair: None,
+        enable_mdns: false,
+        mental: true,
+    };
+
+    let (host_tx, host_rx) = tokio::sync::mpsc::channel::<Action>(1);
+    let (uri_tx, uri_rx) = tokio::sync::oneshot::channel::<String>();
+    let host = tokio::spawn(async move {
+        let mut uri_tx = Some(uri_tx);
+        let mut obs = move |u: DriverUpdate| auto_call(&host_tx, u);
+        run_host_interactive(
+            host_rx,
+            opts,
+            move |uri| {
+                if let Some(tx) = uri_tx.take() {
+                    let _ = tx.send(uri.to_string());
+                }
+            },
+            &mut obs,
+        )
+        .await
+    });
+
+    let uri = tokio::time::timeout(URI_TIMEOUT, uri_rx)
+        .await
+        .expect("host should surface a tcpoker:// URI within the timeout")
+        .expect("uri oneshot channel should not drop");
+
+    let (guest_tx, guest_rx) = tokio::sync::mpsc::channel::<Action>(1);
+    let guest = tokio::spawn(async move {
+        let mut obs = move |u: DriverUpdate| auto_call(&guest_tx, u);
+        run_guest_interactive(&uri, guest_rx, None, false, &mut obs).await
+    });
+
+    let host_report = tokio::time::timeout(HAND_TIMEOUT, host)
+        .await
+        .expect("interactive host did not finish in time (hung)")
+        .expect("host task panicked")
+        .expect("host returned an error");
+    let guest_report = tokio::time::timeout(HAND_TIMEOUT, guest)
+        .await
+        .expect("interactive guest did not finish in time (hung)")
+        .expect("guest task panicked")
+        .expect("guest returned an error");
+
+    assert_eq!(host_report.hands.len(), 1, "host should play exactly 1 hand");
+    assert_eq!(guest_report.hands.len(), 1, "guest should play exactly 1 hand");
+    assert_eq!(
+        host_report.hands[0].outcome, guest_report.hands[0].outcome,
+        "interactive host and guest disagree on the hand outcome\n host: {:?}\nguest: {:?}",
+        host_report.hands[0].outcome, guest_report.hands[0].outcome
+    );
 }

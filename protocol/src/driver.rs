@@ -24,9 +24,9 @@
 //! abandoned (no winner is computed for it) and `run_host` returns the hands completed so far.
 //! A production client would instead fold the absent seat / sit them out; that is future work.
 
-use crate::bot::Strategy;
+use crate::bot::{OneShot, Strategy};
 use crate::table::{HandOutcome, Step, Table, TableError, TableEvent};
-use crate::TableMessage;
+use crate::{Action, TableMessage};
 use libp2p::PeerId;
 use poker_net::{NetError, Node, NodeEvent, NodeHandle};
 use std::collections::{BTreeMap, BTreeSet};
@@ -41,6 +41,54 @@ const BROADCAST_RETRY: Duration = Duration::from_millis(150);
 const RETRANSMIT: Duration = Duration::from_millis(400);
 /// How long the host waits for the first guest before giving up.
 const LOBBY_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// A decision source for the local seat: a deterministic bot (acts synchronously the moment it is
+/// the local turn) or a human (the chosen [`Action`] arrives asynchronously on a channel, applied
+/// via [`OneShot`] in the interactive drivers' `select!` arm). Boxing the bot keeps the strategy
+/// generic out of the loop bodies so both drive sources share one code path.
+enum Decider {
+    Bot(Box<dyn Strategy>),
+    Human(mpsc::Receiver<Action>),
+}
+
+impl Decider {
+    /// The bot strategy, if this is a bot decider (the loop acts immediately on the local turn).
+    /// `None` for a human, whose action instead arrives on the [`Decider::next_action`] arm.
+    fn bot(&mut self) -> Option<&mut dyn Strategy> {
+        match self {
+            Decider::Bot(s) => Some(s.as_mut()),
+            Decider::Human(_) => None,
+        }
+    }
+
+    /// Await the next human action. For a bot this never resolves (the bot acts inline instead), so
+    /// the `select!` arm that polls it is effectively disabled.
+    async fn next_action(&mut self) -> Option<Action> {
+        match self {
+            Decider::Bot(_) => std::future::pending().await,
+            Decider::Human(rx) => rx.recv().await,
+        }
+    }
+}
+
+/// Updates an interactive front-end (the egui app) receives as a game progresses. The bot drivers
+/// pass a no-op observer. Deliberately UI-agnostic: the `protocol` crate has no GUI dependency.
+pub enum DriverUpdate<'a> {
+    /// The shareable `tcpoker://` table URI is ready (host only).
+    Uri(String),
+    /// The host's best dialable address looks non-routable; remote peers may not connect (host only).
+    Reachability(String),
+    /// Live replicated table state changed — re-render from it.
+    State(&'a Table),
+    /// A hand just completed: the public outcome (board, deltas, final stacks) plus this peer's own
+    /// hole cards for that hand.
+    HandResult {
+        outcome: HandOutcome,
+        local_hole: Option<[poker_game::Card; 2]>,
+    },
+    /// The game has ended (the host finished its hands, or the table aborted).
+    Ended,
+}
 
 /// Errors from the async driver.
 #[derive(Debug, Error)]
@@ -374,13 +422,36 @@ async fn replay_deferred(
 ///
 /// On success the URI is printed via the supplied `on_uri` callback as soon as it is known
 /// (so a CLI can display it). Pass a no-op closure to ignore.
-pub async fn run_host<S, F>(
-    mut strategy: S,
+pub async fn run_host<S, F>(strategy: S, opts: HostOptions, on_uri: F) -> Result<GameReport, DriverError>
+where
+    S: Strategy + 'static,
+    F: FnMut(&str),
+{
+    run_host_generic(Decider::Bot(Box::new(strategy)), opts, on_uri, &mut |_| {}).await
+}
+
+/// Run as the HOST with a HUMAN at seat 0: the seat's actions arrive on `action_rx` (the GUI sends
+/// them when the player clicks) and live state changes are pushed to `observer`. Otherwise
+/// identical to [`run_host`].
+pub async fn run_host_interactive<F>(
+    action_rx: mpsc::Receiver<Action>,
     opts: HostOptions,
-    mut on_uri: F,
+    on_uri: F,
+    observer: &mut (dyn FnMut(DriverUpdate) + Send),
 ) -> Result<GameReport, DriverError>
 where
-    S: Strategy,
+    F: FnMut(&str),
+{
+    run_host_generic(Decider::Human(action_rx), opts, on_uri, observer).await
+}
+
+async fn run_host_generic<F>(
+    mut decider: Decider,
+    opts: HostOptions,
+    mut on_uri: F,
+    observer: &mut (dyn FnMut(DriverUpdate) + Send),
+) -> Result<GameReport, DriverError>
+where
     F: FnMut(&str),
 {
     let node = poker_net::host_with_config(
@@ -417,10 +488,14 @@ where
         match ev {
             NodeEvent::TableUriReady(u) => {
                 on_uri(&u);
+                observer(DriverUpdate::Uri(u.clone()));
                 uri = Some(u);
             }
             NodeEvent::ReachabilityWarning(r) => {
                 eprintln!("reachability warning: {r:?} — remote peers may not be able to dial in");
+                observer(DriverUpdate::Reachability(format!(
+                    "{r:?} — remote peers may not be able to dial in"
+                )));
             }
             NodeEvent::PeerDisconnected(p) => {
                 roster.retain(|x| *x != p);
@@ -489,12 +564,16 @@ where
         // The set of guests whose HandComplete we must collect before dealing the next hand.
         let guests: Vec<PeerId> = roster.iter().copied().filter(|p| *p != me).collect();
         let (outcome, local_hole) = play_one_hand(
-            &handle, &mut events, &mut table, &mut strategy, hand_no, me, &guests, &start,
-            start_step,
+            &handle, &mut events, &mut table, &mut decider, hand_no, me, &guests, &start,
+            start_step, observer,
         )
         .await?;
 
         // Advance stacks + button for the next hand.
+        observer(DriverUpdate::HandResult {
+            outcome: outcome.clone(),
+            local_hole,
+        });
         stacks = outcome.final_stacks.clone();
         button = (button + 1) % roster.len();
         report.hands.push(HandReport {
@@ -504,6 +583,7 @@ where
     }
 
     handle.shutdown().await;
+    observer(DriverUpdate::Ended);
     Ok(report)
 }
 
@@ -516,7 +596,7 @@ pub async fn run_guest<S>(
     keypair: Option<libp2p::identity::Keypair>,
 ) -> Result<GameReport, DriverError>
 where
-    S: Strategy,
+    S: Strategy + 'static,
 {
     // Real LAN play: mDNS on.
     run_guest_with_config(uri, strategy, keypair, true).await
@@ -527,13 +607,42 @@ where
 /// via the URI) do not auto-discover and mesh into each other. See [`poker_net::NodeConfig`].
 pub async fn run_guest_with_config<S>(
     uri: &str,
-    mut strategy: S,
+    strategy: S,
     keypair: Option<libp2p::identity::Keypair>,
     enable_mdns: bool,
 ) -> Result<GameReport, DriverError>
 where
-    S: Strategy,
+    S: Strategy + 'static,
 {
+    run_guest_generic(
+        uri,
+        Decider::Bot(Box::new(strategy)),
+        keypair,
+        enable_mdns,
+        &mut |_| {},
+    )
+    .await
+}
+
+/// Run as a GUEST with a HUMAN at this seat: the seat's actions arrive on `action_rx` (the GUI sends
+/// them) and live state changes are pushed to `observer`. Otherwise identical to [`run_guest`].
+pub async fn run_guest_interactive(
+    uri: &str,
+    action_rx: mpsc::Receiver<Action>,
+    keypair: Option<libp2p::identity::Keypair>,
+    enable_mdns: bool,
+    observer: &mut (dyn FnMut(DriverUpdate) + Send),
+) -> Result<GameReport, DriverError> {
+    run_guest_generic(uri, Decider::Human(action_rx), keypair, enable_mdns, observer).await
+}
+
+async fn run_guest_generic(
+    uri: &str,
+    mut decider: Decider,
+    keypair: Option<libp2p::identity::Keypair>,
+    enable_mdns: bool,
+    observer: &mut (dyn FnMut(DriverUpdate) + Send),
+) -> Result<GameReport, DriverError> {
     // HIGH-1 anti-cheat: the legitimate host is the peer the URI told us to dial — its PeerId is
     // carried in the `/p2p/<PeerId>` suffix of the URI's multiaddr(s). We pin our host identity to
     // that peer and reject a `StartHand` from anyone else, so a foreign node on the mesh (e.g. an
@@ -580,6 +689,8 @@ where
         seats: Vec::new(),
         hands: Vec::new(),
     };
+    // How many completed hands we've already pushed to `observer` (so each fires once).
+    let mut emitted_hands = 0usize;
 
     let mut ticker = tokio::time::interval(RETRANSMIT);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -592,6 +703,15 @@ where
                     current_hole = Some(h);
                 }
             }
+        }
+        // Surface any newly-completed hand(s) to the observer (each exactly once).
+        while emitted_hands < report.hands.len() {
+            let h = &report.hands[emitted_hands];
+            observer(DriverUpdate::HandResult {
+                outcome: h.outcome.clone(),
+                local_hole: h.local_hole,
+            });
+            emitted_hands += 1;
         }
         tokio::select! {
             _ = ticker.tick() => {
@@ -631,6 +751,23 @@ where
             Some((key, target, ok)) = deal_rx.recv() => {
                 sender.ack(key, target, ok);
             }
+            maybe_action = decider.next_action() => {
+                // HUMAN guest's action arrived from the GUI (never fires for a bot). Apply it via a
+                // one-shot strategy through the same path the bot uses, if it is still our turn.
+                if let Some(action) = maybe_action {
+                    if let Some(t) = table.as_mut() {
+                        if t.is_local_turn() {
+                            let mut once = OneShot::new(action);
+                            if let Some(a) = act_if_local_turn(&handle, &mut sender, me, &host_targets, t, &mut once, &mut report, &mut last_ack).await? {
+                                last_act = Some(a);
+                            }
+                            pump_local_deal_guest(&handle, &mut sender, me, &host_targets, t, &mut report, &mut current_hole, &mut last_ack).await?;
+                            sender.pump(&handle);
+                            observer(DriverUpdate::State(t));
+                        }
+                    }
+                }
+            }
             ev = events.recv() => {
                 let ev = match ev {
                     Some(e) => e,
@@ -663,9 +800,10 @@ where
                                 }
                                 guest_replay_deferred(&handle, &mut sender, me, &host_targets, t, &mut report, &mut current_hole, &mut last_ack, &mut deferred).await?;
                                 pump_local_deal_guest(&handle, &mut sender, me, &host_targets, t, &mut report, &mut current_hole, &mut last_ack).await?;
-                                if let Some(a) = act_if_local_turn(&handle, &mut sender, me, &host_targets, t, &mut strategy, &mut report, &mut last_ack).await? {
+                                if let Some(a) = guest_bot_act(&handle, &mut sender, me, &host_targets, t, &mut decider, &mut report, &mut last_ack).await? {
                                     last_act = Some(a);
                                 }
+                                observer(DriverUpdate::State(t));
                                 sender.pump(&handle);
                             }
                         }
@@ -717,8 +855,9 @@ where
                                 // owed contributions, and act if it is already our turn.
                                 guest_replay_deferred(&handle, &mut sender, me, &host_targets, &mut t, &mut report, &mut current_hole, &mut last_ack, &mut deferred).await?;
                                 pump_local_deal_guest(&handle, &mut sender, me, &host_targets, &mut t, &mut report, &mut current_hole, &mut last_ack).await?;
-                                last_act = act_if_local_turn(&handle, &mut sender, me, &host_targets, &mut t, &mut strategy, &mut report, &mut last_ack).await?.or(last_act);
+                                last_act = guest_bot_act(&handle, &mut sender, me, &host_targets, &mut t, &mut decider, &mut report, &mut last_ack).await?.or(last_act);
                                 sender.pump(&handle);
+                                observer(DriverUpdate::State(&t));
                                 table = Some(t);
                             }
                             continue;
@@ -743,9 +882,10 @@ where
                                 // act if it is now our turn.
                                 guest_replay_deferred(&handle, &mut sender, me, &host_targets, t, &mut report, &mut current_hole, &mut last_ack, &mut deferred).await?;
                                 pump_local_deal_guest(&handle, &mut sender, me, &host_targets, t, &mut report, &mut current_hole, &mut last_ack).await?;
-                                if let Some(a) = act_if_local_turn(&handle, &mut sender, me, &host_targets, t, &mut strategy, &mut report, &mut last_ack).await? {
+                                if let Some(a) = guest_bot_act(&handle, &mut sender, me, &host_targets, t, &mut decider, &mut report, &mut last_ack).await? {
                                     last_act = Some(a);
                                 }
+                                observer(DriverUpdate::State(t));
                                 sender.pump(&handle);
                             }
                             Err(e) if is_ignorable(&e) => { /* reject / stale / replay: ignore */ }
@@ -782,6 +922,7 @@ where
     }
 
     handle.shutdown().await;
+    observer(DriverUpdate::Ended);
     Ok(report)
 }
 
@@ -805,16 +946,17 @@ fn host_peer_id_from_uri(uri: &str) -> Option<PeerId> {
 /// returning. The ack barrier makes the table self-pacing: the host never deals hand N+1 until
 /// every guest has settled hand N, so a fast host can never reset a hand a guest has not finished.
 #[allow(clippy::too_many_arguments)]
-async fn play_one_hand<S: Strategy>(
+async fn play_one_hand(
     handle: &NodeHandle,
     events: &mut mpsc::Receiver<NodeEvent>,
     table: &mut Table,
-    strategy: &mut S,
+    decider: &mut Decider,
     hand_no: u64,
     me: PeerId,
     guests: &[PeerId],
     start: &TableMessage,
     start_step: Step,
+    observer: &mut (dyn FnMut(DriverUpdate) + Send),
 ) -> Result<(HandOutcome, Option<[poker_game::Card; 2]>), DriverError> {
     let mut last_outcome: Option<HandOutcome> = None;
     // Snapshot this host's OWN hole cards while the hand is live (the live hand — and thus the
@@ -842,17 +984,13 @@ async fn play_one_hand<S: Strategy>(
     capture_outcome(&start_step, &mut last_outcome);
     send_step(handle, &mut sender, me, guests, start_step).await?;
 
-    // If the host itself is first to act, act immediately; pump any owed deal contribution first
-    // (e.g. the host's shuffle turn if it is seat 0). A closing Act here can settle, producing the
-    // host's own showdown/run-out reveals in the step, which `send_step` queues for delivery.
-    {
-        pump_local_deal(handle, &mut sender, me, guests, table, &mut last_outcome).await?;
-        let step = table.local_turn(as_dyn(strategy))?;
-        remember_last_act(&step, &mut last_applied_act);
-        capture_outcome(&step, &mut last_outcome);
-        send_step(handle, &mut sender, me, guests, step).await?;
-    }
+    // If the host itself is first to act, a BOT acts immediately; a human waits (its action arrives
+    // on the `next_action` arm). Pump any owed deal contribution first (e.g. the host's shuffle turn
+    // if it is seat 0).
+    pump_local_deal(handle, &mut sender, me, guests, table, &mut last_outcome).await?;
+    host_bot_act(handle, &mut sender, me, guests, table, decider, &mut last_applied_act, &mut last_outcome).await?;
     sender.pump(handle);
+    observer(DriverUpdate::State(table));
 
     // Retransmit ticker: gossipsub is lossy, so we periodically re-broadcast what we are
     // waiting to be acted on. StartHand is idempotent (see `Table::apply_start_hand`) and a
@@ -901,6 +1039,22 @@ async fn play_one_hand<S: Strategy>(
             Some((key, target, ok)) = deal_rx.recv() => {
                 sender.ack(key, target, ok);
             }
+            maybe_action = decider.next_action() => {
+                // HUMAN host's action arrived from the GUI (never fires for a bot). Apply it via a
+                // one-shot strategy through the same path the bot uses, if it is still our turn.
+                if let Some(action) = maybe_action {
+                    if table.is_local_turn() {
+                        let mut once = OneShot::new(action);
+                        let step = table.local_turn(&mut once)?;
+                        remember_last_act(&step, &mut last_applied_act);
+                        capture_outcome(&step, &mut last_outcome);
+                        send_step(handle, &mut sender, me, guests, step).await?;
+                        pump_local_deal(handle, &mut sender, me, guests, table, &mut last_outcome).await?;
+                        sender.pump(handle);
+                        observer(DriverUpdate::State(table));
+                    }
+                }
+            }
             ev = events.recv() => {
                 let ev = ev.ok_or(DriverError::NodeClosed)?;
                 match ev {
@@ -922,14 +1076,12 @@ async fn play_one_hand<S: Strategy>(
                             send_step(handle, &mut sender, me, guests, step).await?;
                         }
                         // Applying may have advanced the deal and unblocked deferred payloads, owed
-                        // local contributions, and/or our betting turn.
+                        // local contributions, and/or our betting turn (a bot acts; a human waits).
                         replay_deferred(handle, &mut sender, me, guests, table, &mut last_outcome, &mut deferred, true).await?;
                         pump_local_deal(handle, &mut sender, me, guests, table, &mut last_outcome).await?;
-                        let step = table.local_turn(as_dyn(strategy))?;
-                        remember_last_act(&step, &mut last_applied_act);
-                        capture_outcome(&step, &mut last_outcome);
-                        send_step(handle, &mut sender, me, guests, step).await?;
+                        host_bot_act(handle, &mut sender, me, guests, table, decider, &mut last_applied_act, &mut last_outcome).await?;
                         sender.pump(handle);
+                        observer(DriverUpdate::State(table));
                     }
                     NodeEvent::Message { from, data } => {
                         // gossipsub carries only non-deal messages now: Act, Start*, HandComplete,
@@ -959,14 +1111,13 @@ async fn play_one_hand<S: Strategy>(
                             Err(e) => return Err(e.into()),
                         }
                         // Applying this Act may have opened a street (the host owes a community
-                        // reveal), unblocked deferred payloads, and/or made it our betting turn.
+                        // reveal), unblocked deferred payloads, and/or made it our betting turn
+                        // (a bot acts immediately; a human waits for the GUI to send an action).
                         replay_deferred(handle, &mut sender, me, guests, table, &mut last_outcome, &mut deferred, true).await?;
                         pump_local_deal(handle, &mut sender, me, guests, table, &mut last_outcome).await?;
-                        let step = table.local_turn(as_dyn(strategy))?;
-                        remember_last_act(&step, &mut last_applied_act);
-                        capture_outcome(&step, &mut last_outcome);
-                        send_step(handle, &mut sender, me, guests, step).await?;
+                        host_bot_act(handle, &mut sender, me, guests, table, decider, &mut last_applied_act, &mut last_outcome).await?;
                         sender.pump(handle);
+                        observer(DriverUpdate::State(table));
                     }
                     NodeEvent::PeerDisconnected(p) => {
                         if guests.contains(&p) && !acked.contains(&p) {
@@ -978,6 +1129,27 @@ async fn play_one_hand<S: Strategy>(
             }
         }
     }
+}
+
+/// HOST: if the local seat is driven by a BOT and it is its turn, ask the bot and send the Act.
+/// For a human seat this is a no-op — the action arrives asynchronously on the `next_action` arm.
+async fn host_bot_act(
+    handle: &NodeHandle,
+    sender: &mut DealSender,
+    me: PeerId,
+    guests: &[PeerId],
+    table: &mut Table,
+    decider: &mut Decider,
+    last_applied_act: &mut Option<TableMessage>,
+    last_outcome: &mut Option<HandOutcome>,
+) -> Result<(), DriverError> {
+    if let Some(bot) = decider.bot() {
+        let step = table.local_turn(bot)?;
+        remember_last_act(&step, last_applied_act);
+        capture_outcome(&step, last_outcome);
+        send_step(handle, sender, me, guests, step).await?;
+    }
+    Ok(())
 }
 
 /// True for the trustless deal payload messages the HOST must RELAY between guests. Guests are
@@ -1145,19 +1317,19 @@ fn remember_last_act(step: &Step, slot: &mut Option<TableMessage>) {
 /// producing this peer's own showdown/run-out reveals in the same step; [`finish_step`] routes
 /// those (deal payloads reliably) and captures the `HandComplete` ack.
 #[allow(clippy::too_many_arguments)]
-async fn act_if_local_turn<S: Strategy>(
+async fn act_if_local_turn(
     handle: &NodeHandle,
     sender: &mut DealSender,
     me: PeerId,
     targets: &[PeerId],
     table: &mut Table,
-    strategy: &mut S,
+    strategy: &mut dyn Strategy,
     report: &mut GameReport,
     last_ack: &mut Option<TableMessage>,
 ) -> Result<Option<TableMessage>, DriverError> {
     // Snapshot the hole before local_turn — a closing Act settles the hand and clears it.
     let local_hole = table.local_hole();
-    let step = table.local_turn(as_dyn(strategy))?;
+    let step = table.local_turn(strategy)?;
     let act = step
         .broadcasts
         .iter()
@@ -1168,6 +1340,26 @@ async fn act_if_local_turn<S: Strategy>(
         *last_ack = Some(ack);
     }
     Ok(act)
+}
+
+/// GUEST: if the local seat is driven by a BOT, act when it is its turn (via [`act_if_local_turn`]);
+/// for a human seat this is a no-op — the action arrives on the `next_action` arm instead.
+#[allow(clippy::too_many_arguments)]
+async fn guest_bot_act(
+    handle: &NodeHandle,
+    sender: &mut DealSender,
+    me: PeerId,
+    targets: &[PeerId],
+    table: &mut Table,
+    decider: &mut Decider,
+    report: &mut GameReport,
+    last_ack: &mut Option<TableMessage>,
+) -> Result<Option<TableMessage>, DriverError> {
+    if let Some(bot) = decider.bot() {
+        act_if_local_turn(handle, sender, me, targets, table, bot, report, last_ack).await
+    } else {
+        Ok(None)
+    }
 }
 
 /// Process a GUEST [`Step`]: record any completed hand into `report` and broadcast (over gossipsub)
@@ -1221,11 +1413,6 @@ fn capture_outcome(step: &Step, out: &mut Option<HandOutcome>) {
             *out = Some(o.clone());
         }
     }
-}
-
-/// Helper: coerce a `&mut S: Strategy` to a `&mut dyn Strategy` for [`Table::local_turn`].
-fn as_dyn<S: Strategy>(s: &mut S) -> &mut dyn Strategy {
-    s
 }
 
 /// True for table errors an honest peer must SURVIVE rather than abort on: rejected cheat

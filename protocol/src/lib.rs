@@ -22,9 +22,10 @@ pub mod driver;
 pub mod mental;
 pub mod table;
 
-pub use bot::{CallStationBot, CheckFoldBot, Strategy};
+pub use bot::{CallStationBot, CheckFoldBot, OneShot, Strategy};
 pub use driver::{
-    run_guest, run_guest_with_config, run_host, DriverError, GameReport, HandReport, HostOptions,
+    run_guest, run_guest_interactive, run_guest_with_config, run_host, run_host_interactive,
+    DriverError, DriverUpdate, GameReport, HandReport, HostOptions,
 };
 pub use mental::{DealEffect, DealPhase};
 pub use table::{HandOutcome, Step, Table, TableError, TableEvent};

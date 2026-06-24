@@ -34,6 +34,26 @@ impl Strategy for CheckFoldBot {
     }
 }
 
+/// A one-shot strategy that yields a single pre-chosen [`Action`] exactly once. The interactive
+/// driver constructs one from a human's chosen action and feeds it through the same
+/// [`Table::local_turn`](crate::table::Table::local_turn) path the bots use, so a human seat needs
+/// no special-casing in the replicated state machine. Only ever consumed on a confirmed local turn.
+pub struct OneShot(Option<Action>);
+
+impl OneShot {
+    pub fn new(action: Action) -> Self {
+        OneShot(Some(action))
+    }
+}
+
+impl Strategy for OneShot {
+    fn decide(&mut self, _state: &BettingState, _seat: usize) -> Action {
+        self.0
+            .take()
+            .expect("OneShot::decide called more than once")
+    }
+}
+
 /// A passive strategy that always stays in the cheapest way: check when free, otherwise call.
 /// Drives hands to showdown (good for exercising the full street/showdown path) while never
 /// putting in a raise. Deterministic.

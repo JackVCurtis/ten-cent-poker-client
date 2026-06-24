@@ -5678,6 +5678,7 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "poker-crypto",
+ "poker-game",
  "poker-net",
  "poker-protocol",
  "poker-wallet",
