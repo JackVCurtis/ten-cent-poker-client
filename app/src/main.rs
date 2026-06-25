@@ -22,11 +22,18 @@ use poker_wallet::{derive_address, DEV_MNEMONIC};
 mod gui_state;
 #[cfg(feature = "gui")]
 mod ui;
+#[cfg(feature = "gui")]
+mod freeplay;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // `--gui` launches the free-play window; `--gui-classic` keeps the original networked GUI.
+    #[cfg(feature = "gui")]
+    if std::env::args().any(|a| a == "--gui-classic") {
+        return Ok(ui::run()?);
+    }
     #[cfg(feature = "gui")]
     if std::env::args().any(|a| a == "--gui") {
-        return Ok(ui::run()?);
+        return Ok(freeplay::run()?);
     }
 
     let args: Vec<String> = std::env::args().collect();
