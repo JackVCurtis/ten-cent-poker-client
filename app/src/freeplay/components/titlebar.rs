@@ -54,7 +54,11 @@ pub fn render(ui: &mut Ui, sub: &str) {
 
     // Wordmark: "Ten Cent Poker" (Hanken 600 13px, primary text).
     let word_font = theme::ui_font(13.0, Weight::SemiBold);
-    let word_galley = painter.layout_no_wrap("Ten Cent Poker".to_owned(), word_font.clone(), Palette::TEXT_PRIMARY);
+    let word_galley = painter.layout_no_wrap(
+        "Ten Cent Poker".to_owned(),
+        word_font.clone(),
+        Palette::TEXT_PRIMARY,
+    );
     painter.text(
         Pos2::new(x, mid_y),
         Align2::LEFT_CENTER,
@@ -78,5 +82,4 @@ pub fn render(ui: &mut Ui, sub: &str) {
 }
 
 /// Dime-logo circle border: accent emerald at ~0.55 alpha (prototype `rgba(47,214,160,0.55)`).
-const LOGO_BORDER: Color32 =
-    Color32::from_rgba_premultiplied(0x1a, 0x76, 0x58, 140);
+const LOGO_BORDER: Color32 = Color32::from_rgba_premultiplied(0x1a, 0x76, 0x58, 140);

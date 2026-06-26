@@ -20,14 +20,16 @@ use eframe::egui::{
 };
 
 use crate::freeplay::components::{host_rail, titlebar};
-use crate::freeplay::model::{AppState, Game, HostConfig, Screen};
+use crate::freeplay::model::{AppState, Game, HostConfig};
 use crate::freeplay::theme::{self, size, Palette, Weight};
 
 /// What the host screen produced this frame.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub struct HostScreenResponse {
-    /// `Create free table` was clicked.
+    /// `Create free table` was clicked — the app starts a real host connection.
     pub create: bool,
+    /// The join slide-over's `Join table` fired with this `tcpoker://` URI — the app dials it.
+    pub join: Option<String>,
 }
 
 /// Left-rail interior padding (prototype `padding:24px 24px 12px`).
@@ -42,8 +44,6 @@ const RING_A: f32 = 258.0;
 const RING_B: f32 = 168.0;
 const RING_CX: f32 = 230.0;
 const RING_CY: f32 = 125.0;
-/// The preview's static table name (prototype hard-codes `Friday Night Grind` in the live preview).
-const PREVIEW_NAME: &str = "Friday Night Grind";
 
 /// Render the standalone host screen (titlebar + rail + live preview), editing `state.host`. When the
 /// rail's `Create free table` CTA fires, this creates the table from `state.host` and routes to the
@@ -70,15 +70,32 @@ pub fn render(ui: &mut Ui, state: &mut AppState) -> HostScreenResponse {
     );
     let preview_rect = Rect::from_min_max(Pos2::new(rail_rect.right(), body.top()), body.max);
 
-    render_rail(ui, rail_rect, state, &mut resp);
-    render_preview(ui, preview_rect, &state.host);
+    // The single active table's live invite (present once a host connection is up), surfaced in the
+    // preview so the host can copy + share the real URI.
+    let invite = state.tables.first().and_then(|t| t.invite_uri.clone());
+    let reach = state.tables.first().and_then(|t| t.reachability.clone());
 
-    // Create the table and route to the grid when the CTA fires.
-    if resp.create {
-        state.create_free_table(&state.host.clone());
-        state.screen = Screen::Grid;
+    render_rail(ui, rail_rect, state, &mut resp);
+    render_preview(
+        ui,
+        preview_rect,
+        &state.host,
+        invite.as_deref(),
+        reach.as_deref(),
+    );
+
+    // The "Join a table instead" link opens the join slide-over; its CTA bubbles a URI up to the app.
+    let jr = crate::freeplay::components::join::render(ui, state);
+    if jr.close {
+        state.join_open = false;
+    }
+    if let Some(uri) = jr.join {
+        resp.join = Some(uri);
+        state.join_open = false;
     }
 
+    // Starting the host connection (and any screen routing) is the app's job — it owns the runtime
+    // and the `TableConn`. This screen only surfaces the intents.
     resp
 }
 
@@ -109,40 +126,131 @@ fn render_rail(ui: &mut Ui, rect: Rect, state: &mut AppState, resp: &mut HostScr
             if rail.create {
                 resp.create = true;
             }
+            if rail.join {
+                state.join_open = true;
+            }
         });
 }
 
-/// Paint the right live-preview column: the radial-ish backdrop, the `Live preview` pill + table-name
-/// caption, and the centred mini-table that restates `cfg` (game title, `Free play`, blinds + seats)
-/// with host/open seats around the rim. Pure painting — the preview is read-only.
-fn render_preview(ui: &mut Ui, rect: Rect, cfg: &HostConfig) {
+/// Paint the right live-preview column: the radial-ish backdrop, the `Live preview` pill + the live
+/// invite caption (replacing the old static table name), and the centred mini-table that restates
+/// `cfg` (game title, `Free play`, blinds + seats) with host/open seats around the rim. `invite` /
+/// `reach` come from the active host connection's projected table, once it is up.
+fn render_preview(
+    ui: &mut Ui,
+    rect: Rect,
+    cfg: &HostConfig,
+    invite: Option<&str>,
+    reach: Option<&str>,
+) {
     if !ui.is_rect_visible(rect) {
         return;
     }
     paint_preview_backdrop(ui, rect);
 
     // `Live preview` pill, top-left (accent-tint capsule with a dot + accent label).
-    paint_live_pill(ui, Pos2::new(rect.left() + PREVIEW_INSET, rect.top() + PREVIEW_INSET));
-    // Table name, top-right (muted mono).
-    ui.painter().text(
-        Pos2::new(rect.right() - PREVIEW_INSET, rect.top() + PREVIEW_INSET + 8.0),
-        Align2::RIGHT_CENTER,
-        PREVIEW_NAME,
-        theme::mono_font(11.0, Weight::Regular),
-        Palette::TEXT_MUTED_DIM,
+    paint_live_pill(
+        ui,
+        Pos2::new(rect.left() + PREVIEW_INSET, rect.top() + PREVIEW_INSET),
     );
+    // Invite caption + Copy, top-right — the REAL shareable URI once hosting (else a muted hint).
+    paint_invite(ui, rect, invite, reach);
 
     // The oval table, centred and scaled down from its native 460×250 to fit the column with margin.
     let max_w = (rect.width() - 80.0).max(120.0);
     let max_h = (rect.height() - 120.0).max(80.0);
     let scale = (max_w / OVAL_W).min(max_h / OVAL_H).min(1.0).max(0.0);
-    let oval = Rect::from_center_size(
-        rect.center(),
-        Vec2::new(OVAL_W * scale, OVAL_H * scale),
-    );
+    let oval = Rect::from_center_size(rect.center(), Vec2::new(OVAL_W * scale, OVAL_H * scale));
     paint_oval(ui, oval);
     paint_oval_center(ui, oval, cfg);
     paint_ring_seats(ui, oval, cfg.seats, scale);
+}
+
+/// Paint the top-right invite caption: while hosting, the live `tcpoker://` URI (truncated mono) with
+/// a small `Copy` button beneath and any reachability warning below the oval; before hosting, a muted
+/// "create a table for an invite" hint. Replaces the prototype's static `Friday Night Grind` text.
+fn paint_invite(ui: &Ui, rect: Rect, invite: Option<&str>, reach: Option<&str>) {
+    let right = rect.right() - PREVIEW_INSET;
+    let top = rect.top() + PREVIEW_INSET + 8.0;
+    match invite {
+        None => {
+            ui.painter().text(
+                Pos2::new(right, top),
+                Align2::RIGHT_CENTER,
+                "create a table for an invite",
+                theme::mono_font(11.0, Weight::Regular),
+                Palette::TEXT_MUTED_DIM,
+            );
+        }
+        Some(uri) => {
+            // Truncated URI (keep the scheme + a tail) so a long multiaddr fits the caption.
+            let shown = truncate_uri(uri);
+            ui.painter().text(
+                Pos2::new(right, top),
+                Align2::RIGHT_CENTER,
+                shown,
+                theme::mono_font(11.0, Weight::Regular),
+                Palette::TEXT_SECONDARY,
+            );
+            // `Copy` button beneath the caption.
+            let font = theme::ui_font(11.0, Weight::SemiBold);
+            let label = "Copy invite";
+            let pad = Vec2::new(10.0, 5.0);
+            let gw = ui
+                .painter()
+                .layout_no_wrap(label.to_string(), font.clone(), Palette::ON_ACCENT)
+                .size();
+            let size = gw + pad * 2.0;
+            let btn = Rect::from_min_size(Pos2::new(right - size.x, top + 14.0), size);
+            let resp = ui.interact(btn, ui.id().with("host_preview_copy"), egui::Sense::click());
+            let fill = if resp.hovered() {
+                Color32::from_rgb(0x3a, 0xe0, 0xac)
+            } else {
+                Palette::ACCENT
+            };
+            theme::fill_rect(ui, btn, theme::rad::INPUT, fill, Stroke::NONE);
+            ui.painter().text(
+                btn.center(),
+                Align2::CENTER_CENTER,
+                label,
+                font,
+                Palette::ON_ACCENT,
+            );
+            if resp.clicked() {
+                ui.ctx().copy_text(uri.to_string());
+            }
+            // Reachability warning (amber) bottom-left of the preview column.
+            if let Some(w) = reach {
+                ui.painter().text(
+                    Pos2::new(rect.left() + PREVIEW_INSET, rect.bottom() - PREVIEW_INSET),
+                    Align2::LEFT_BOTTOM,
+                    format!("\u{26a0} {w}"),
+                    theme::ui_font(11.0, Weight::Medium),
+                    Palette::TIMER_AMBER,
+                );
+            }
+        }
+    }
+}
+
+/// Truncate a long `tcpoker://` URI for the caption: keep the leading scheme and a trailing slice with
+/// an ellipsis in between, so the readable head + tail fit without overflowing the column.
+fn truncate_uri(uri: &str) -> String {
+    const HEAD: usize = 12;
+    const TAIL: usize = 16;
+    if uri.chars().count() <= HEAD + TAIL + 1 {
+        return uri.to_string();
+    }
+    let head: String = uri.chars().take(HEAD).collect();
+    let tail: String = uri
+        .chars()
+        .rev()
+        .take(TAIL)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("{head}\u{2026}{tail}")
 }
 
 /// Approximate the preview's `radial-gradient(130% 120% at 50% 28%, #111418 0%, #0a0b0e 72%)`: fill
@@ -166,7 +274,9 @@ fn paint_preview_backdrop(ui: &Ui, rect: Rect) {
 fn paint_live_pill(ui: &Ui, top_left: Pos2) {
     let font = theme::ui_font(11.0, Weight::Medium);
     let label = "Live preview";
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font.clone(), Palette::ACCENT_TEXT);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font.clone(), Palette::ACCENT_TEXT);
     let dot_d = 6.0;
     let inner_gap = 7.0;
     let pad = Vec2::new(11.0, 5.0);
@@ -248,11 +358,18 @@ fn paint_oval_center(ui: &Ui, oval: Rect, cfg: &HostConfig) {
     // Blinds + seat count (Hanken 400 11px, dimmest muted). Stud is anted, not blinded — match the
     // prototype's `stakesHeader = isStud ? 'Antes' : 'Blinds'`.
     let seats_word = if cfg.seats == 1 { "seat" } else { "seats" };
-    let stakes_header = if cfg.game == Game::Stud { "Antes" } else { "Blinds" };
+    let stakes_header = if cfg.game == Game::Stud {
+        "Antes"
+    } else {
+        "Blinds"
+    };
     painter.text(
         Pos2::new(cx, cy + 24.0),
         Align2::CENTER_CENTER,
-        format!("{} {} \u{b7} {} {}", stakes_header, cfg.blinds, cfg.seats, seats_word),
+        format!(
+            "{} {} \u{b7} {} {}",
+            stakes_header, cfg.blinds, cfg.seats, seats_word
+        ),
         theme::ui_font(11.0, Weight::Regular),
         Palette::TEXT_MUTED_DIM,
     );
@@ -279,7 +396,10 @@ fn ring_pos(oval: Rect, i: usize, n: usize) -> Pos2 {
     // Native preview coordinates are in the 460×250 oval box; convert to a 0..1 fraction of it.
     let fx = (RING_CX + RING_A * th.cos()) / OVAL_W;
     let fy = (RING_CY + RING_B * th.sin()) / OVAL_H;
-    Pos2::new(oval.left() + fx * oval.width(), oval.top() + fy * oval.height())
+    Pos2::new(
+        oval.left() + fx * oval.width(),
+        oval.top() + fy * oval.height(),
+    )
 }
 
 /// The host seat pill: accent-tint surface + accent border, a `YOU` accent avatar, and the
@@ -292,8 +412,13 @@ fn paint_host_seat(ui: &Ui, center: Pos2, scale: f32) {
     let sub_font = theme::mono_font(9.0 * scale.max(0.7), Weight::Regular);
 
     let painter = ui.painter();
-    let name_g = painter.layout_no_wrap("Host".to_string(), name_font.clone(), Palette::ACCENT_TEXT);
-    let sub_g = painter.layout_no_wrap("seat 1".to_string(), sub_font.clone(), Palette::ACCENT_STACK);
+    let name_g =
+        painter.layout_no_wrap("Host".to_string(), name_font.clone(), Palette::ACCENT_TEXT);
+    let sub_g = painter.layout_no_wrap(
+        "seat 1".to_string(),
+        sub_font.clone(),
+        Palette::ACCENT_STACK,
+    );
     let col_w = name_g.size().x.max(sub_g.size().x);
     let col_h = name_g.size().y + sub_g.size().y;
 
@@ -318,7 +443,8 @@ fn paint_host_seat(ui: &Ui, center: Pos2, scale: f32) {
     let cy = rect.center().y;
     // `YOU` accent avatar with near-black initials.
     let avatar_center = Pos2::new(inner_left + avatar_d / 2.0, cy);
-    ui.painter().circle_filled(avatar_center, avatar_d / 2.0, Palette::ACCENT);
+    ui.painter()
+        .circle_filled(avatar_center, avatar_d / 2.0, Palette::ACCENT);
     ui.painter().text(
         avatar_center,
         Align2::CENTER_CENTER,
@@ -348,18 +474,28 @@ fn paint_host_seat(ui: &Ui, center: Pos2, scale: f32) {
 /// An `Open seat` pill: surface fill + dashed hairline border + muted label, centred on `center`.
 fn paint_open_seat(ui: &Ui, center: Pos2, scale: f32) {
     let font = theme::ui_font(11.0 * scale.max(0.7), Weight::Medium);
-    let galley = ui.painter().layout_no_wrap("Open seat".to_string(), font.clone(), Palette::TEXT_MUTED);
+    let galley =
+        ui.painter()
+            .layout_no_wrap("Open seat".to_string(), font.clone(), Palette::TEXT_MUTED);
     let pad = Vec2::new(10.0, 9.0) * scale.max(0.6);
     let size = galley.size() + pad * 2.0;
     let rect = Rect::from_center_size(center, size);
     if !ui.is_rect_visible(rect) {
         return;
     }
-    ui.painter()
-        .rect_filled(rect, CornerRadius::same(theme::rad::PANEL), Palette::SURFACE);
+    ui.painter().rect_filled(
+        rect,
+        CornerRadius::same(theme::rad::PANEL),
+        Palette::SURFACE,
+    );
     paint_dashed_border(ui, rect, theme::rad::PANEL as f32, Palette::BORDER_DASH);
-    ui.painter()
-        .text(rect.center(), Align2::CENTER_CENTER, "Open seat", font, Palette::TEXT_MUTED);
+    ui.painter().text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        "Open seat",
+        font,
+        Palette::TEXT_MUTED,
+    );
 }
 
 /// Approximate a dashed rounded-rect border by dashing the four straight edges (inset by the corner
@@ -371,10 +507,22 @@ fn paint_dashed_border(ui: &Ui, rect: Rect, radius: f32, color: Color32) {
     let (dash, gap) = (3.0, 3.0);
     let painter = ui.painter();
 
-    let top = [Pos2::new(rect.left() + r, rect.top()), Pos2::new(rect.right() - r, rect.top())];
-    let bottom = [Pos2::new(rect.left() + r, rect.bottom()), Pos2::new(rect.right() - r, rect.bottom())];
-    let left = [Pos2::new(rect.left(), rect.top() + r), Pos2::new(rect.left(), rect.bottom() - r)];
-    let right = [Pos2::new(rect.right(), rect.top() + r), Pos2::new(rect.right(), rect.bottom() - r)];
+    let top = [
+        Pos2::new(rect.left() + r, rect.top()),
+        Pos2::new(rect.right() - r, rect.top()),
+    ];
+    let bottom = [
+        Pos2::new(rect.left() + r, rect.bottom()),
+        Pos2::new(rect.right() - r, rect.bottom()),
+    ];
+    let left = [
+        Pos2::new(rect.left(), rect.top() + r),
+        Pos2::new(rect.left(), rect.bottom() - r),
+    ];
+    let right = [
+        Pos2::new(rect.right(), rect.top() + r),
+        Pos2::new(rect.right(), rect.bottom() - r),
+    ];
     for seg in [top, bottom, left, right] {
         painter.add(egui::Shape::dashed_line(&seg, stroke, dash, gap));
     }
@@ -383,7 +531,11 @@ fn paint_dashed_border(ui: &Ui, rect: Rect, radius: f32, color: Color32) {
     let pi = std::f32::consts::PI;
     let corners = [
         (Pos2::new(rect.left() + r, rect.top() + r), pi, 1.5 * pi),
-        (Pos2::new(rect.right() - r, rect.top() + r), 1.5 * pi, 2.0 * pi),
+        (
+            Pos2::new(rect.right() - r, rect.top() + r),
+            1.5 * pi,
+            2.0 * pi,
+        ),
         (Pos2::new(rect.right() - r, rect.bottom() - r), 0.0, half_pi),
         (Pos2::new(rect.left() + r, rect.bottom() - r), half_pi, pi),
     ];

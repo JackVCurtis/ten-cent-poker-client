@@ -25,7 +25,14 @@ pub fn segmented_pill(ui: &mut Ui, label: &str, selected: bool, mono: bool) -> e
 /// Paint a segmented pill into an explicit `rect` (for callers that lay pills out by hand, e.g. an
 /// equal-flex row). `hovered` lifts the unselected border slightly. Returns nothing — the caller
 /// already owns the response that produced `rect`.
-pub fn paint_segmented(ui: &Ui, rect: Rect, label: &str, selected: bool, mono: bool, hovered: bool) {
+pub fn paint_segmented(
+    ui: &Ui,
+    rect: Rect,
+    label: &str,
+    selected: bool,
+    mono: bool,
+    hovered: bool,
+) {
     if !ui.is_rect_visible(rect) {
         return;
     }
@@ -38,14 +45,23 @@ pub fn paint_segmented(ui: &Ui, rect: Rect, label: &str, selected: bool, mono: b
             egui::StrokeKind::Inside,
         );
     }
-    let color = if selected { Palette::ACCENT_TEXT } else { Palette::TEXT_SECONDARY };
+    let color = if selected {
+        Palette::ACCENT_TEXT
+    } else {
+        Palette::TEXT_SECONDARY
+    };
     let font = if mono {
         theme::mono_font(12.0, Weight::SemiBold)
     } else {
         theme::ui_font(12.0, Weight::SemiBold)
     };
-    ui.painter()
-        .text(rect.center(), egui::Align2::CENTER_CENTER, label, font, color);
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        font,
+        color,
+    );
 }
 
 /// Lay out a row of segmented pills that share the available width equally (the host rail's game /
@@ -90,22 +106,38 @@ pub fn stepper(ui: &mut Ui, value: usize) -> StepperClick {
 /// arrow still returns its [`StepperClick`]; the caller's clamp makes it a no-op.
 pub fn stepper_bounded(ui: &mut Ui, value: usize, min: usize, max: usize) -> StepperClick {
     let h = 34.0;
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width().max(120.0), h), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width().max(120.0), h),
+        Sense::hover(),
+    );
     let mut click = StepperClick::None;
     if !ui.is_rect_visible(rect) {
         return click;
     }
-    theme::fill_rect(ui, rect, rad::INPUT, Palette::SURFACE, theme::hairline(Palette::BORDER_07));
+    theme::fill_rect(
+        ui,
+        rect,
+        rad::INPUT,
+        Palette::SURFACE,
+        theme::hairline(Palette::BORDER_07),
+    );
 
     // Carve out square arrow hit-zones at each end; the value sits centered between them.
     let arrow_w = h;
     let down_rect = Rect::from_min_size(rect.min, Vec2::new(arrow_w, h));
-    let up_rect = Rect::from_min_size(egui::pos2(rect.max.x - arrow_w, rect.min.y), Vec2::new(arrow_w, h));
+    let up_rect = Rect::from_min_size(
+        egui::pos2(rect.max.x - arrow_w, rect.min.y),
+        Vec2::new(arrow_w, h),
+    );
 
     let down_enabled = value > min;
     let up_enabled = value < max;
 
-    let down_resp = ui.interact(down_rect, ui.id().with(("stepper_down", value)), Sense::click());
+    let down_resp = ui.interact(
+        down_rect,
+        ui.id().with(("stepper_down", value)),
+        Sense::click(),
+    );
     let up_resp = ui.interact(up_rect, ui.id().with(("stepper_up", value)), Sense::click());
     if down_resp.clicked() {
         click = StepperClick::Down;
@@ -160,42 +192,83 @@ pub fn badge(ui: &mut Ui, label: &str, fill: Color32, text: Color32, border: Col
     } else {
         theme::ui_font(9.0, Weight::SemiBold)
     };
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font.clone(), text);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font.clone(), text);
     let pad = Vec2::new(6.0, 2.0);
     let (rect, _) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::hover());
     if ui.is_rect_visible(rect) {
         theme::fill_rect(ui, rect, rad::BADGE, fill, theme::hairline(border));
-        ui.painter()
-            .text(rect.center(), egui::Align2::CENTER_CENTER, label, font, text);
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            label,
+            font,
+            text,
+        );
     }
 }
 
 /// The game badge (`NLH` / `PLO` / `STUD`): neutral surface + secondary text + hairline, mono.
 pub fn game_badge(ui: &mut Ui, label: &str) {
-    badge(ui, label, Palette::SURFACE, Palette::TEXT_SECONDARY, Palette::BORDER_07, true);
+    badge(
+        ui,
+        label,
+        Palette::SURFACE,
+        Palette::TEXT_SECONDARY,
+        Palette::BORDER_07,
+        true,
+    );
 }
 
 /// The free-table stake badge: a MUTED `FREE` (not accent) — `#6e737d` on `#16181e`. Proportional.
 pub fn free_badge(ui: &mut Ui) {
-    badge(ui, "FREE", Palette::SURFACE, Palette::TEXT_MUTED, Palette::BORDER_07, false);
+    badge(
+        ui,
+        "FREE",
+        Palette::SURFACE,
+        Palette::TEXT_MUTED,
+        Palette::BORDER_07,
+        false,
+    );
 }
 
 /// The accent `FOCUS` tag shown on the keyboard-focused tile: accent text on accent tint.
 pub fn focus_badge(ui: &mut Ui) {
-    badge(ui, "FOCUS", Palette::ACCENT_TINT, Palette::ACCENT_TEXT, Palette::ACCENT_BORDER, false);
+    badge(
+        ui,
+        "FOCUS",
+        Palette::ACCENT_TINT,
+        Palette::ACCENT_TEXT,
+        Palette::ACCENT_BORDER,
+        false,
+    );
 }
 
 /// A neutral count chip, e.g. `4 active`: surface fill, secondary text, hairline, mono number. The
 /// whole label is passed in so callers control pluralization.
 pub fn count_chip(ui: &mut Ui, label: &str) {
     let font = theme::mono_font(11.0, Weight::Medium);
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font.clone(), Palette::TEXT_SECONDARY);
+    let galley =
+        ui.painter()
+            .layout_no_wrap(label.to_string(), font.clone(), Palette::TEXT_SECONDARY);
     let pad = Vec2::new(9.0, 4.0);
     let (rect, _) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::hover());
     if ui.is_rect_visible(rect) {
-        theme::fill_rect(ui, rect, rad::INPUT, Palette::SURFACE, theme::hairline(Palette::BORDER_07));
-        ui.painter()
-            .text(rect.center(), egui::Align2::CENTER_CENTER, label, font, Palette::TEXT_SECONDARY);
+        theme::fill_rect(
+            ui,
+            rect,
+            rad::INPUT,
+            Palette::SURFACE,
+            theme::hairline(Palette::BORDER_07),
+        );
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            label,
+            font,
+            Palette::TEXT_SECONDARY,
+        );
     }
 }
 
@@ -203,7 +276,9 @@ pub fn count_chip(ui: &mut Ui, label: &str) {
 /// accent label. `pulse` is the current eased opacity (`0.0..=1.0`) for the dot; pass `1.0` at rest.
 pub fn need_chip(ui: &mut Ui, label: &str, pulse: f32) {
     let font = theme::ui_font(11.5, Weight::SemiBold);
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font.clone(), Palette::ACCENT_TEXT);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font.clone(), Palette::ACCENT_TEXT);
     let dot_d = 6.0;
     let inner_gap = 6.0;
     let pad = Vec2::new(10.0, 5.0);
@@ -215,10 +290,21 @@ pub fn need_chip(ui: &mut Ui, label: &str, pulse: f32) {
     if !ui.is_rect_visible(rect) {
         return;
     }
-    theme::fill_rect(ui, rect, rad::INPUT, Palette::ACCENT_TINT, theme::hairline(Palette::ACCENT_BORDER));
+    theme::fill_rect(
+        ui,
+        rect,
+        rad::INPUT,
+        Palette::ACCENT_TINT,
+        theme::hairline(Palette::ACCENT_BORDER),
+    );
     let dot_center = egui::pos2(rect.min.x + pad.x + dot_d / 2.0, rect.center().y);
     let a = (255.0 * pulse.clamp(0.0, 1.0)) as u8;
-    let dot_c = Color32::from_rgba_premultiplied(Palette::ACCENT.r(), Palette::ACCENT.g(), Palette::ACCENT.b(), a);
+    let dot_c = Color32::from_rgba_premultiplied(
+        Palette::ACCENT.r(),
+        Palette::ACCENT.g(),
+        Palette::ACCENT.b(),
+        a,
+    );
     theme::dot(ui, dot_center, dot_d, dot_c);
     ui.painter().text(
         egui::pos2(dot_center.x + dot_d / 2.0 + inner_gap, rect.center().y),
@@ -246,7 +332,7 @@ pub fn status_dot(ui: &mut Ui, color: Color32, diameter: f32, pulse: f32) {
 pub fn pulse_opacity(clock_ms: f32) -> f32 {
     let period = 1_200.0;
     let phase = (clock_ms % period) / period; // 0..1
-    // Triangle wave 1 → 0.4 → 1.
+                                              // Triangle wave 1 → 0.4 → 1.
     let tri = 1.0 - (phase - 0.5).abs() * 2.0; // 0 at ends, 1 at middle
     0.4 + 0.6 * (1.0 - tri)
 }
@@ -259,7 +345,8 @@ pub fn pulse_opacity(clock_ms: f32) -> f32 {
 /// free table" / "Next table" CTA. `height` lets the host footer use a taller button. Returns the
 /// click response.
 pub fn primary_button(ui: &mut Ui, label: &str, height: f32) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
     if ui.is_rect_visible(rect) {
         // Slight darken on hover to signal interactivity (egui has no gradient/shadow).
         let fill = if resp.hovered() {
@@ -282,14 +369,21 @@ pub fn primary_button(ui: &mut Ui, label: &str, height: f32) -> egui::Response {
 /// A neutral slate button (`#262a31` + hairline, primary text) — the calm "Leave table" / "Done"
 /// confirm CTA. Full-width to `height`. Returns the click response.
 pub fn slate_button(ui: &mut Ui, label: &str, height: f32) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
     if ui.is_rect_visible(rect) {
         let fill = if resp.hovered() {
             Color32::from_rgb(0x2e, 0x33, 0x3b)
         } else {
             Palette::SLATE_BTN
         };
-        theme::fill_rect(ui, rect, rad::PANEL, fill, theme::hairline(Palette::BORDER_07));
+        theme::fill_rect(
+            ui,
+            rect,
+            rad::PANEL,
+            fill,
+            theme::hairline(Palette::BORDER_07),
+        );
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -304,10 +398,21 @@ pub fn slate_button(ui: &mut Ui, label: &str, height: f32) -> egui::Response {
 /// A secondary/ghost button (transparent-ish neutral surface + hairline, secondary text) — e.g.
 /// "Stay at table". Full-width to `height`. Returns the click response.
 pub fn neutral_button(ui: &mut Ui, label: &str, height: f32) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
     if ui.is_rect_visible(rect) {
-        let fill = if resp.hovered() { Palette::SURFACE } else { Palette::NEUTRAL_BTN };
-        theme::fill_rect(ui, rect, rad::PANEL, fill, theme::hairline(Palette::BORDER_07));
+        let fill = if resp.hovered() {
+            Palette::SURFACE
+        } else {
+            Palette::NEUTRAL_BTN
+        };
+        theme::fill_rect(
+            ui,
+            rect,
+            rad::PANEL,
+            fill,
+            theme::hairline(Palette::BORDER_07),
+        );
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,

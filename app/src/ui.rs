@@ -169,7 +169,10 @@ impl PokerApp {
                 ui.label("Players:");
                 ui.add(egui::DragValue::new(&mut self.seats).range(2..=9));
             });
-            ui.checkbox(&mut self.mental, "Trustless dealing (hides hole cards; recommended)");
+            ui.checkbox(
+                &mut self.mental,
+                "Trustless dealing (hides hole cards; recommended)",
+            );
             ui.horizontal(|ui| {
                 ui.label("Listen port:");
                 ui.add(
@@ -194,10 +197,7 @@ impl PokerApp {
                     .desired_width(f32::INFINITY),
             );
             let ok = self.join_uri.trim().starts_with("tcpoker://");
-            if ui
-                .add_enabled(ok, egui::Button::new("Join"))
-                .clicked()
-            {
+            if ui.add_enabled(ok, egui::Button::new("Join")).clicked() {
                 self.start_guest();
             }
         });
@@ -227,9 +227,7 @@ impl PokerApp {
                     ui.add_space(6.0);
                     ui.label("Share this table URI with the other players:");
                     let mut uri_disp = uri.clone();
-                    ui.add(
-                        egui::TextEdit::singleline(&mut uri_disp).desired_width(f32::INFINITY),
-                    );
+                    ui.add(egui::TextEdit::singleline(&mut uri_disp).desired_width(f32::INFINITY));
                     if ui.button("Copy URI").clicked() {
                         ui.ctx().copy_text(uri.clone());
                     }
@@ -275,7 +273,11 @@ impl PokerApp {
     fn render_hand(&mut self, ui: &mut egui::Ui, snap: &GuiState) {
         // Header line.
         if let Some(hn) = snap.hand_no {
-            let mode = if snap.is_mental { "trustless" } else { "placeholder" };
+            let mode = if snap.is_mental {
+                "trustless"
+            } else {
+                "placeholder"
+            };
             let street = snap
                 .street
                 .map(|s| format!("{s:?}"))
@@ -443,12 +445,16 @@ fn render_result(ui: &mut egui::Ui, r: &ResultView) {
             ui.label(format!("· your hand {} {}", card_str(a), card_str(b)));
         }
     });
-    ui.label(format!("Deltas: {:?}   Stacks: {:?}", r.deltas, r.final_stacks));
+    ui.label(format!(
+        "Deltas: {:?}   Stacks: {:?}",
+        r.deltas, r.final_stacks
+    ));
 }
 
 /// Observer the driver task calls (on the tokio runtime) as the game progresses: fold each update
-/// into the shared snapshot and wake the UI thread.
-fn apply_update(state: &Arc<Mutex<GuiState>>, ctx: &egui::Context, u: DriverUpdate) {
+/// into the shared snapshot and wake the UI thread. Shared with the free-play connection layer
+/// (`crate::freeplay::conn`), which installs this exact observer on its driver task.
+pub fn apply_update(state: &Arc<Mutex<GuiState>>, ctx: &egui::Context, u: DriverUpdate) {
     {
         let mut s = state.lock().unwrap();
         match u {

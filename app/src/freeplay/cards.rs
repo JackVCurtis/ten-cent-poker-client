@@ -49,7 +49,11 @@ pub fn parse(s: &str) -> Vec<Card> {
                 'c' => ('\u{2663}', false), // ♣
                 _ => return None,
             };
-            let rank = if rank_raw == "T" { "10".to_string() } else { rank_raw };
+            let rank = if rank_raw == "T" {
+                "10".to_string()
+            } else {
+                rank_raw
+            };
             Some(Card { rank, suit, red })
         })
         .collect()

@@ -44,7 +44,11 @@ pub enum Visibility {
 #[derive(Clone)]
 pub enum Seat {
     /// A seated player: display name + chip stack. `folded` dims the pill to 0.4 opacity.
-    Filled { name: String, stack: u64, folded: bool },
+    Filled {
+        name: String,
+        stack: u64,
+        folded: bool,
+    },
     /// An open seat.
     Empty,
 }
@@ -52,12 +56,20 @@ pub enum Seat {
 impl Seat {
     /// Convenience constructor for a seated (active, not-folded) player.
     pub fn filled(name: impl Into<String>, stack: u64) -> Self {
-        Seat::Filled { name: name.into(), stack, folded: false }
+        Seat::Filled {
+            name: name.into(),
+            stack,
+            folded: false,
+        }
     }
 
     /// Convenience constructor for a seated player who has folded this hand (dimmed).
     pub fn folded(name: impl Into<String>, stack: u64) -> Self {
-        Seat::Filled { name: name.into(), stack, folded: true }
+        Seat::Filled {
+            name: name.into(),
+            stack,
+            folded: true,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -94,6 +106,34 @@ pub struct Table {
     pub to_call: u64,
     /// Remaining action time in ms; counts down while `your_turn`.
     pub time_left: u64,
+
+    /// The host's shareable `tcpoker://` invite URI, once known (host tables only).
+    pub invite_uri: Option<String>,
+    /// A reachability warning surfaced by the host node (non-routable address, etc.), if any.
+    pub reachability: Option<String>,
+
+    // Live legal-action bounds, mirroring [`crate::gui_state::LegalActions`]. Projected from the
+    // active connection's snapshot and consumed by the action bar to gate buttons + clamp sizing.
+    /// Checking is legal (nothing owed).
+    pub can_check: bool,
+    /// Calling is legal (a bet is owed and the seat can cover at least part of it).
+    pub can_call: bool,
+    /// Opening a bet is legal (no outstanding bet).
+    pub can_bet: bool,
+    /// Raising is legal (an outstanding bet the seat can exceed).
+    pub can_raise: bool,
+    /// Going all-in is legal (the seat has chips).
+    pub can_all_in: bool,
+    /// Minimum legal opening bet total (chips).
+    pub min_bet: u64,
+    /// Minimum legal raise-to total (chips).
+    pub min_raise_to: u64,
+    /// Maximum bet/raise-to total — the seat's all-in size (chips).
+    pub max_to: u64,
+    /// The action bar's current bet/raise sizing target (chips). Owned by the app (persisted across
+    /// frames and written into the projected table each frame, clamped into the active legal range);
+    /// the action bar renders + steps it and emits `Act::Bet(bet_to)` / `Act::Raise(bet_to)`.
+    pub bet_to: u64,
 }
 
 /// Total action-timer duration in ms (prototype `TOTAL`).
@@ -125,26 +165,22 @@ impl Table {
     pub fn timer_frac(&self) -> f32 {
         (self.time_left as f32 / TIMER_TOTAL_MS as f32).clamp(0.0, 1.0)
     }
-
-    /// Apply the pot-growth bookkeeping the prototype runs when you act (`call`/`raise` add chips to
-    /// the pot; a raise adds twice the call plus the free-play raise increment). Fold adds nothing.
-    fn apply_action(&mut self, action: Act) {
-        match action {
-            Act::Fold => {}
-            Act::Call => self.pot += self.to_call,
-            // Free-play raise increment is 80 chips (prototype `t.staked ? 4 : 80`).
-            Act::Raise => self.pot += self.to_call * 2 + 80,
-        }
-    }
 }
 
-/// The action a player took on a table (returned up from the action bar / keyboard).
+/// The action a player took on a table (returned up from the action bar / keyboard). Bet/Raise carry
+/// the chosen sizing (the to-total target, in chips) from the action bar's sizing control; `conn`
+/// maps these to the authoritative [`poker_protocol::Action`] against the live legal bounds.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Act {
     Fold,
-    /// Check or Call, depending on `to_call`.
-    Call,
-    Raise,
+    /// Check or Call, depending on the live legal state (no outstanding bet → check).
+    CheckCall,
+    /// Open a bet to this total (chips).
+    Bet(u64),
+    /// Raise to this total (chips).
+    Raise(u64),
+    /// Commit the whole stack.
+    AllIn,
 }
 
 /// The leave-table modal's state machine.
@@ -217,6 +253,10 @@ pub struct AppState {
     pub leave: Option<Leave>,
     /// Whether the host slide-over is open over the grid.
     pub host_open: bool,
+    /// Whether the join-table slide-over (paste a `tcpoker://` invite) is open over the grid.
+    pub join_open: bool,
+    /// The invite URI being typed into the join slide-over.
+    pub join_uri: String,
     /// Live host-a-table config (drives both the slide-over and the standalone host screen).
     pub host: HostConfig,
     /// Which top-level screen is showing.
@@ -243,6 +283,8 @@ impl AppState {
             open_menu_id: None,
             leave: None,
             host_open: false,
+            join_open: false,
+            join_uri: String::new(),
             host: HostConfig::default(),
             screen: Screen::Host,
             clock_ms: 0.0,
@@ -288,27 +330,8 @@ impl AppState {
     }
 
     // -----------------------------------------------------------------------
-    // Gameplay transitions
+    // Focus transitions
     // -----------------------------------------------------------------------
-
-    /// Apply an action to a table: grow the pot, end your turn there, clear its timer, and move focus
-    /// to the next your-turn table. A no-op if the table is unknown or it isn't your turn there. Whose
-    /// turn it is next comes from real game state (once networking is wired), not a local simulation.
-    pub fn act(&mut self, table_id: u64, action: Act) {
-        let Some(t) = self.table_mut(table_id) else { return };
-        if !t.your_turn {
-            return;
-        }
-        t.apply_action(action);
-        t.your_turn = false;
-        t.time_left = 0;
-        self.move_focus();
-    }
-
-    /// Auto-fold the table whose timer just expired (called by [`tick`]). Equivalent to acting Fold.
-    pub fn auto_fold(&mut self, table_id: u64) {
-        self.act(table_id, Act::Fold);
-    }
 
     /// Set `focus_id` to the first your-turn table (or clear it when none remain). Called after you
     /// act so focus follows live action.
@@ -319,12 +342,19 @@ impl AppState {
     /// `Space` handler — cycle focus to the next your-turn table after the current one. With no
     /// current focus (or it no longer needs action) lands on the first your-turn table.
     pub fn focus_next(&mut self) {
-        let turns: Vec<u64> = self.tables.iter().filter(|t| t.your_turn).map(|t| t.id).collect();
+        let turns: Vec<u64> = self
+            .tables
+            .iter()
+            .filter(|t| t.your_turn)
+            .map(|t| t.id)
+            .collect();
         if turns.is_empty() {
             self.focus_id = None;
             return;
         }
-        let idx = self.focus_id.and_then(|f| turns.iter().position(|&id| id == f));
+        let idx = self
+            .focus_id
+            .and_then(|f| turns.iter().position(|&id| id == f));
         let next = match idx {
             Some(i) => turns[(i + 1) % turns.len()],
             None => turns[0],
@@ -339,7 +369,11 @@ impl AppState {
     /// Open the calm leave-table confirm modal for `id` (also closes any open ⋯ menu).
     pub fn begin_leave(&mut self, id: u64) {
         self.open_menu_id = None;
-        self.leave = Some(Leave { id, stage: LeaveStage::Confirm, elapsed_ms: 0 });
+        self.leave = Some(Leave {
+            id,
+            stage: LeaveStage::Confirm,
+            elapsed_ms: 0,
+        });
     }
 
     /// Advance the leave flow `Confirm` → `Processing`. The `Processing` → `Done` step is timed and
@@ -388,8 +422,12 @@ impl AppState {
     // Host → create
     // -----------------------------------------------------------------------
 
-    /// Create a new free table from a host config and append it to the grid. The host takes seat 0
-    /// with [`HOST_START_STACK`] chips; every other seat is `Open`. Returns the new table's id.
+    /// Build a placeholder free table from a host config and append it to the grid. The host takes
+    /// seat 0 with [`HOST_START_STACK`] chips; every other seat is `Open`. Returns the new table's id.
+    ///
+    /// This is a PURE helper retained for tests / the standalone-host preview shape only. The LIVE app
+    /// never appends a simulated table here: the single active table is projected each frame from the
+    /// real connection's snapshot (see `crate::freeplay::project`).
     pub fn create_free_table(&mut self, cfg: &HostConfig) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
@@ -416,6 +454,17 @@ impl AppState {
             your_turn: false,
             to_call: 0,
             time_left: 0,
+            invite_uri: None,
+            reachability: None,
+            can_check: false,
+            can_call: false,
+            can_bet: false,
+            can_raise: false,
+            can_all_in: false,
+            min_bet: 0,
+            min_raise_to: 0,
+            max_to: 0,
+            bet_to: 0,
         });
         id
     }
@@ -432,30 +481,15 @@ impl AppState {
     // Animation / sim clock
     // -----------------------------------------------------------------------
 
-    /// Advance the world by `dt_ms`: bump the animation clock, count down every your-turn timer
-    /// (auto-folding any that hit 0), and progress the leave `Processing` timer. Whose turn it is
-    /// comes from real game state once networking is wired — there is no local turn simulation.
+    /// Advance the UI-only animation/leave clocks by `dt_ms`: bump the animation clock and progress
+    /// the leave `Processing` timer. The your-turn timer DISPLAY and its real auto-fold are owned by
+    /// the app's connection layer (driven off the live snapshot), not this local model — displayed
+    /// pot/stacks/board/turn come only from the projected real state.
     pub fn tick(&mut self, dt_ms: f32) {
         self.clock_ms += dt_ms;
         let dt = dt_ms.max(0.0) as u64;
 
-        // 1) Action timers: decrement, collecting any that expire for auto-fold.
-        let mut expired: Vec<u64> = Vec::new();
-        for t in &mut self.tables {
-            if t.your_turn {
-                if t.time_left <= dt {
-                    t.time_left = 0;
-                    expired.push(t.id);
-                } else {
-                    t.time_left -= dt;
-                }
-            }
-        }
-        for id in expired {
-            self.auto_fold(id);
-        }
-
-        // 2) Leave-table Processing → Done timer.
+        // Leave-table Processing → Done timer.
         if let Some(l) = self.leave.as_mut() {
             if l.stage == LeaveStage::Processing {
                 l.elapsed_ms += dt;
@@ -465,5 +499,49 @@ impl AppState {
                 }
             }
         }
+    }
+}
+
+/// Whether `s` looks like a pasteable table invite: a `tcpoker://…` URI (leading/trailing
+/// whitespace ignored). Gates the join slide-over's `Join` CTA. Cheap syntactic check only — the
+/// driver does the authoritative decode when it actually dials.
+pub fn is_valid_invite(s: &str) -> bool {
+    s.trim().starts_with("tcpoker://")
+}
+
+/// Parse a blinds display string (`"sb / bb"`, chips) into `(small_blind, big_blind)`, or `None` if
+/// either side is missing or non-numeric. The inverse of the `"{sb} / {bb}"` display used by the
+/// host config / tile header — the host threads this into the engine's posted blinds so the running
+/// game matches the selected (and displayed) string instead of a hardcoded default.
+pub fn parse_blinds(s: &str) -> Option<(u64, u64)> {
+    let (sb, bb) = s.split_once('/')?;
+    Some((sb.trim().parse().ok()?, bb.trim().parse().ok()?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_valid_invite_accepts_tcpoker_uris() {
+        assert!(is_valid_invite("tcpoker://x"));
+        // Surrounding whitespace is trimmed before the prefix check.
+        assert!(is_valid_invite("  tcpoker://x "));
+        // Rejects empty and other schemes.
+        assert!(!is_valid_invite(""));
+        assert!(!is_valid_invite("http://x"));
+    }
+
+    #[test]
+    fn parse_blinds_reads_sb_and_bb() {
+        // The display formats used by the host config / presets round-trip.
+        assert_eq!(parse_blinds("20 / 40"), Some((20, 40)));
+        assert_eq!(parse_blinds("100 / 200"), Some((100, 200)));
+        // Whitespace around the separator is optional.
+        assert_eq!(parse_blinds("5/10"), Some((5, 10)));
+        // Malformed strings yield None (the caller falls back to the engine default).
+        assert_eq!(parse_blinds(""), None);
+        assert_eq!(parse_blinds("20"), None);
+        assert_eq!(parse_blinds("x / y"), None);
     }
 }
