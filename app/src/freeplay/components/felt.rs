@@ -74,7 +74,11 @@ fn paint_oval(ui: &Ui, oval: Rect) {
     let center = oval.center();
 
     // Base (top-stop) fill.
-    painter.add(egui::Shape::ellipse_filled(center, radius, Palette::FELT_TOP));
+    painter.add(egui::Shape::ellipse_filled(
+        center,
+        radius,
+        Palette::FELT_TOP,
+    ));
     // Lower half darkened toward the bottom stop: a slightly smaller ellipse shifted down, faking the
     // linear top→bottom gradient that egui can't express directly.
     let lower_center = pos2(center.x, center.y + radius.y * 0.18);
@@ -100,7 +104,11 @@ fn paint_center(ui: &Ui, oval: Rect, table: &Table) {
     // column with an 8px gap.
     if board.is_empty() {
         // `PRE-FLOP` (no pot yet) or `· · ·` (pot building but no board) per `boardEmptyLabel`.
-        let label = if table.pot > 0 { "\u{b7} \u{b7} \u{b7}" } else { "PRE-FLOP" };
+        let label = if table.pot > 0 {
+            "\u{b7} \u{b7} \u{b7}"
+        } else {
+            "PRE-FLOP"
+        };
         ui.painter().text(
             pos2(center.x, center.y - 10.0),
             Align2::CENTER_CENTER,
@@ -122,12 +130,20 @@ fn paint_center(ui: &Ui, oval: Rect, table: &Table) {
 fn paint_pot(ui: &Ui, center: Pos2, pot: u64) {
     let painter = ui.painter();
     let label_font = theme::ui_font(9.0, Weight::Regular);
-    let amount = if pot > 0 { group_thousands(pot) } else { "\u{2014}".to_string() };
+    let amount = if pot > 0 {
+        group_thousands(pot)
+    } else {
+        "\u{2014}".to_string()
+    };
     let amount_font = theme::mono_font(13.0, Weight::SemiBold);
 
     // Lay the `POT` label and the amount side by side with a 6px gap, centred as a unit.
     let label_w = painter
-        .layout_no_wrap("POT".to_string(), label_font.clone(), Palette::TEXT_MUTED_DIM)
+        .layout_no_wrap(
+            "POT".to_string(),
+            label_font.clone(),
+            Palette::TEXT_MUTED_DIM,
+        )
         .size()
         .x;
     let amount_w = painter
@@ -137,9 +153,21 @@ fn paint_pot(ui: &Ui, center: Pos2, pot: u64) {
     let gap = 6.0;
     let total = label_w + gap + amount_w;
     let mut x = center.x - total / 2.0;
-    painter.text(pos2(x, center.y), Align2::LEFT_CENTER, "POT", label_font, Palette::TEXT_MUTED_DIM);
+    painter.text(
+        pos2(x, center.y),
+        Align2::LEFT_CENTER,
+        "POT",
+        label_font,
+        Palette::TEXT_MUTED_DIM,
+    );
     x += label_w + gap;
-    painter.text(pos2(x, center.y), Align2::LEFT_CENTER, amount, amount_font, Palette::TEXT_PRIMARY);
+    painter.text(
+        pos2(x, center.y),
+        Align2::LEFT_CENTER,
+        amount,
+        amount_font,
+        Palette::TEXT_PRIMARY,
+    );
 }
 
 /// Place opponent seats (indices 1..N) around the oval rim and delegate each to [`seat::render`].
@@ -167,7 +195,10 @@ fn seat_pos(oval: Rect, i: usize, n: usize) -> Pos2 {
     // Prototype percentages (0..100) → 0..1 fraction of the oval box.
     let fx = (RING_CX + RING_A * th.cos()) / RING_DIV_X / 100.0;
     let fy = (RING_CY + RING_B * th.sin()) / RING_DIV_Y / 100.0;
-    pos2(oval.min.x + fx * oval.width(), oval.min.y + fy * oval.height())
+    pos2(
+        oval.min.x + fx * oval.width(),
+        oval.min.y + fy * oval.height(),
+    )
 }
 
 /// Format a chip count with comma thousands separators (`1700` → `"1,700"`), matching the prototype's

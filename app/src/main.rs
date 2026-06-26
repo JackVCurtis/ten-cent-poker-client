@@ -13,27 +13,19 @@
 
 use poker_crypto::{g1_scalar_mul, scalar_field_bits};
 use poker_net::sample_table_uri;
-use poker_protocol::{
-    run_guest, run_host, CallStationBot, GameReport, HostOptions,
-};
+use poker_protocol::{run_guest, run_host, CallStationBot, GameReport, HostOptions};
 use poker_wallet::{derive_address, DEV_MNEMONIC};
 
-#[cfg(feature = "gui")]
-mod gui_state;
-#[cfg(feature = "gui")]
-mod ui;
-#[cfg(feature = "gui")]
-mod freeplay;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // `--gui` launches the free-play window; `--gui-classic` keeps the original networked GUI.
+    // `--gui` launches the free-play window; `--gui-classic` keeps the original networked GUI. Both
+    // live in the `poker_app` library (see `lib.rs`) so tests can reach the free-play wiring.
     #[cfg(feature = "gui")]
     if std::env::args().any(|a| a == "--gui-classic") {
-        return Ok(ui::run()?);
+        return Ok(poker_app::ui::run()?);
     }
     #[cfg(feature = "gui")]
     if std::env::args().any(|a| a == "--gui") {
-        return Ok(freeplay::run()?);
+        return Ok(poker_app::freeplay::run()?);
     }
 
     let args: Vec<String> = std::env::args().collect();
@@ -138,7 +130,10 @@ const DEMO_HANDS: u64 = 3;
 
 /// `poker host [hands]` — create a table, print the URI, wait for a guest, play `hands` hands.
 fn run_cli_host(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let hands = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or(DEMO_HANDS);
+    let hands = args
+        .get(2)
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(DEMO_HANDS);
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
         println!("hosting a TRUSTLESS table — cards are dealt by the distributed");
@@ -161,7 +156,10 @@ fn run_cli_host(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
 /// `poker join <uri>` — join a table and play.
 fn run_cli_join(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let uri = args.get(2).ok_or("usage: poker join <tcpoker://...>")?.clone();
+    let uri = args
+        .get(2)
+        .ok_or("usage: poker join <tcpoker://...>")?
+        .clone();
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
         println!("joining table {uri} ...");
@@ -180,7 +178,10 @@ fn fmt_card(c: &poker_protocol::Card) -> String {
 /// ITS OWN two hole cards (decrypted locally — no other peer can see them), the shared public
 /// board, and the result (deltas + stacks) that every peer computed identically.
 fn print_report(who: &str, report: &GameReport) {
-    println!("\n===== {who}: game over — {} hand(s) played =====", report.hands.len());
+    println!(
+        "\n===== {who}: game over — {} hand(s) played =====",
+        report.hands.len()
+    );
     for h in report.hands.iter() {
         let o = &h.outcome;
         let board: Vec<String> = o.community.iter().map(fmt_card).collect();
@@ -215,7 +216,10 @@ fn smoke() -> Result<(), Box<dyn std::error::Error>> {
 
     // 3. Crypto — exercise the BN254 proving stack used for ZK card dealing / settlement.
     let _point = g1_scalar_mul(42);
-    println!("crypto : BN254 scalar field = {} bits (g·42 computed)", scalar_field_bits());
+    println!(
+        "crypto : BN254 scalar field = {} bits (g·42 computed)",
+        scalar_field_bits()
+    );
 
     println!("\nOK: wallet + net + crypto smoke passed.");
     println!("\nTo play across two terminals:");

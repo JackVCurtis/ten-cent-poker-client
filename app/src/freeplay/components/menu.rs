@@ -62,14 +62,19 @@ pub fn render(ui: &mut Ui, tile_rect: Rect) -> MenuResponse {
         .fixed_pos(win.min)
         .interactable(true)
         .sense(Sense::click())
-        .show(&ctx, |ui| ui.allocate_exact_size(win.size(), Sense::click()));
+        .show(&ctx, |ui| {
+            ui.allocate_exact_size(win.size(), Sense::click())
+        });
     if catcher.inner.1.clicked() {
         resp.close = true;
     }
 
     // 2) The framed dropdown (prototype `z-index:31`), anchored so its top-right corner sits 10px in
     //    from the tile's right edge and just below the 42px header.
-    let anchor = Pos2::new(tile_rect.right() - ANCHOR_RIGHT, tile_rect.top() + ANCHOR_DOWN);
+    let anchor = Pos2::new(
+        tile_rect.right() - ANCHOR_RIGHT,
+        tile_rect.top() + ANCHOR_DOWN,
+    );
     let dropdown = Area::new(Id::new(("freeplay_menu", key)))
         .order(Order::Foreground)
         .fixed_pos(anchor)
@@ -110,18 +115,36 @@ fn paint_dropdown(ui: &mut Ui) -> Option<Choice> {
 
     // Frame: menu bg + 0.10 hairline, panel radius. (No gradient/shadow in egui — the prototype's
     // `box-shadow` drop is approximated by the frame border alone.)
-    theme::fill_rect(ui, frame, rad::PANEL, Palette::MENU_BG, theme::hairline(Palette::BORDER_10));
+    theme::fill_rect(
+        ui,
+        frame,
+        rad::PANEL,
+        Palette::MENU_BG,
+        theme::hairline(Palette::BORDER_10),
+    );
 
     let mut choice = None;
     let mut y = frame.top() + PAD;
     let x = frame.left() + PAD;
 
     // Two secondary rows.
-    if menu_item(ui, item_rect(x, y, inner_w, row_h), "Hand history", Palette::TEXT_SECONDARY, None) {
+    if menu_item(
+        ui,
+        item_rect(x, y, inner_w, row_h),
+        "Hand history",
+        Palette::TEXT_SECONDARY,
+        None,
+    ) {
         choice = Some(Choice::Inert);
     }
     y += row_h;
-    if menu_item(ui, item_rect(x, y, inner_w, row_h), "Table settings", Palette::TEXT_SECONDARY, None) {
+    if menu_item(
+        ui,
+        item_rect(x, y, inner_w, row_h),
+        "Table settings",
+        Palette::TEXT_SECONDARY,
+        None,
+    ) {
         choice = Some(Choice::Inert);
     }
     y += row_h;
@@ -137,7 +160,13 @@ fn paint_dropdown(ui: &mut Ui) -> Option<Choice> {
 
     // `Leave table` — neutral brighter text. NOT highlighted/promoted. (Trailing ↗ dropped: the
     // fallback font renders it as a missing-glyph box; restore once real fonts are bundled.)
-    if menu_item(ui, item_rect(x, y, inner_w, row_h), "Leave table", LEAVE_TEXT, None) {
+    if menu_item(
+        ui,
+        item_rect(x, y, inner_w, row_h),
+        "Leave table",
+        LEAVE_TEXT,
+        None,
+    ) {
         choice = Some(Choice::Leave);
     }
     choice
@@ -159,7 +188,8 @@ fn item_rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
 fn menu_item(ui: &mut Ui, rect: Rect, label: &str, color: Color32, trailing: Option<&str>) -> bool {
     let resp = ui.interact(rect, ui.id().with(("item", label)), Sense::click());
     if resp.hovered() {
-        ui.painter().rect_filled(rect, CornerRadius::same(ITEM_RAD), Palette::SURFACE);
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(ITEM_RAD), Palette::SURFACE);
         ui.painter().rect_stroke(
             rect,
             CornerRadius::same(ITEM_RAD),

@@ -8,9 +8,7 @@
 
 use std::sync::Arc;
 
-use eframe::egui::{
-    self, Color32, CornerRadius, FontFamily, FontId, Pos2, Rect, Stroke, Ui, Vec2,
-};
+use eframe::egui::{self, Color32, CornerRadius, FontFamily, FontId, Pos2, Rect, Stroke, Ui, Vec2};
 
 /// Every color token from the README's color table, as `Color32` consts. Hairline/translucent
 /// borders are expressed as fixed alphas over white to match the `rgba(255,255,255,0.0x)` lines.
@@ -198,17 +196,43 @@ pub fn install_fonts(ctx: &egui::Context) {
             .font_data
             .insert(key.to_owned(), Arc::new(FontData::from_static(bytes)));
     };
-    add("hanken-400", include_bytes!("fonts/HankenGrotesk-Regular.ttf"));
-    add("hanken-500", include_bytes!("fonts/HankenGrotesk-Medium.ttf"));
-    add("hanken-600", include_bytes!("fonts/HankenGrotesk-SemiBold.ttf"));
+    add(
+        "hanken-400",
+        include_bytes!("fonts/HankenGrotesk-Regular.ttf"),
+    );
+    add(
+        "hanken-500",
+        include_bytes!("fonts/HankenGrotesk-Medium.ttf"),
+    );
+    add(
+        "hanken-600",
+        include_bytes!("fonts/HankenGrotesk-SemiBold.ttf"),
+    );
     add("hanken-700", include_bytes!("fonts/HankenGrotesk-Bold.ttf"));
-    add("jbmono-400", include_bytes!("fonts/JetBrainsMono-Regular.ttf"));
-    add("jbmono-500", include_bytes!("fonts/JetBrainsMono-Medium.ttf"));
-    add("jbmono-600", include_bytes!("fonts/JetBrainsMono-SemiBold.ttf"));
+    add(
+        "jbmono-400",
+        include_bytes!("fonts/JetBrainsMono-Regular.ttf"),
+    );
+    add(
+        "jbmono-500",
+        include_bytes!("fonts/JetBrainsMono-Medium.ttf"),
+    );
+    add(
+        "jbmono-600",
+        include_bytes!("fonts/JetBrainsMono-SemiBold.ttf"),
+    );
 
     // Default fallback chains (egui's bundled fonts carry the suit/symbol glyphs Hanken/JBMono lack).
-    let prop_fallback = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
-    let mono_fallback = fonts.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();
+    let prop_fallback = fonts
+        .families
+        .get(&FontFamily::Proportional)
+        .cloned()
+        .unwrap_or_default();
+    let mono_fallback = fonts
+        .families
+        .get(&FontFamily::Monospace)
+        .cloned()
+        .unwrap_or_default();
 
     for key in ["hanken-400", "hanken-500", "hanken-600", "hanken-700"] {
         let mut list = vec![key.to_owned()];
@@ -222,8 +246,16 @@ pub fn install_fonts(ctx: &egui::Context) {
     }
 
     // Stray egui text (anything not routed through ui_font/mono_font) uses the 400 weights.
-    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "hanken-400".to_owned());
-    fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "jbmono-400".to_owned());
+    fonts
+        .families
+        .entry(FontFamily::Proportional)
+        .or_default()
+        .insert(0, "hanken-400".to_owned());
+    fonts
+        .families
+        .entry(FontFamily::Monospace)
+        .or_default()
+        .insert(0, "jbmono-400".to_owned());
 
     ctx.set_fonts(fonts);
 }
@@ -248,7 +280,13 @@ pub fn apply_style(ctx: &egui::Context) {
     // Widget states default to the neutral surface; components mostly paint their own frames, so
     // these are just sensible fallbacks for stray egui widgets.
     let wv = &mut v.widgets;
-    for w in [&mut wv.noninteractive, &mut wv.inactive, &mut wv.hovered, &mut wv.active, &mut wv.open] {
+    for w in [
+        &mut wv.noninteractive,
+        &mut wv.inactive,
+        &mut wv.hovered,
+        &mut wv.active,
+        &mut wv.open,
+    ] {
         w.bg_fill = Palette::SURFACE;
         w.weak_bg_fill = Palette::SURFACE;
         w.bg_stroke = Stroke::new(1.0, Palette::BORDER_07);
@@ -275,8 +313,13 @@ pub fn hairline(color: Color32) -> Stroke {
 
 /// Fill `rect` with `fill` and an optional hairline `stroke`, rounded to `radius` px.
 pub fn fill_rect(ui: &Ui, rect: Rect, radius: u8, fill: Color32, stroke: Stroke) {
-    ui.painter()
-        .rect(rect, CornerRadius::same(radius), fill, stroke, egui::StrokeKind::Inside);
+    ui.painter().rect(
+        rect,
+        CornerRadius::same(radius),
+        fill,
+        stroke,
+        egui::StrokeKind::Inside,
+    );
 }
 
 /// Paint a primary accent (emerald) button frame into `rect`. Caller draws the label on top.
@@ -286,12 +329,24 @@ pub fn accent_button_frame(ui: &Ui, rect: Rect, radius: u8) {
 
 /// Paint a neutral surface button frame (`#1a1c21` + hairline) into `rect`.
 pub fn neutral_button_frame(ui: &Ui, rect: Rect, radius: u8) {
-    fill_rect(ui, rect, radius, Palette::NEUTRAL_BTN, hairline(Palette::BORDER_07));
+    fill_rect(
+        ui,
+        rect,
+        radius,
+        Palette::NEUTRAL_BTN,
+        hairline(Palette::BORDER_07),
+    );
 }
 
 /// Paint a slate confirm-button frame (`#262a31` + hairline) into `rect`.
 pub fn slate_button_frame(ui: &Ui, rect: Rect, radius: u8) {
-    fill_rect(ui, rect, radius, Palette::SLATE_BTN, hairline(Palette::BORDER_07));
+    fill_rect(
+        ui,
+        rect,
+        radius,
+        Palette::SLATE_BTN,
+        hairline(Palette::BORDER_07),
+    );
 }
 
 /// Paint a pill frame: rounded surface fill + hairline. When `accent` is set, swaps to the accent
@@ -313,7 +368,12 @@ pub fn soft_ring(ui: &Ui, rect: Rect, radius: u8, color: Color32, layers: u8) {
     // Keep the blur tight enough that the halo stays within the tile/seat gap and doesn't bleed into
     // neighbours: ~3px per requested layer, capped.
     let blur = (layers.max(1)).saturating_mul(3).min(22);
-    let shadow = egui::epaint::Shadow { offset: [0, 0], blur, spread: 1, color };
+    let shadow = egui::epaint::Shadow {
+        offset: [0, 0],
+        blur,
+        spread: 1,
+        color,
+    };
     ui.painter()
         .add(shadow.as_shape(rect, CornerRadius::same(radius)));
 }

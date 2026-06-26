@@ -1,7 +1,8 @@
 //! The 54px grid toolbar: the `Tables` title, an `N active` count chip, a pulsing `N need you`
 //! accent chip when one or more tables await action, a muted "chips in play" readout, plus the
-//! right-side keyboard legend (`F fold · C call · R raise`), a `Next table` button (Space hint), and
-//! the `+ New table` accent button that opens the host slide-over.
+//! right-side keyboard legend (`F fold · C call · R raise`), a `Next table` button (Space hint), a
+//! `Join table` button that opens the paste-an-invite join slide-over, and the `+ New table` accent
+//! button that opens the host slide-over.
 
 use eframe::egui::{self, Align, Color32, Layout, Rect, Sense, Ui, Vec2};
 
@@ -15,6 +16,8 @@ pub struct ToolbarResponse {
     pub next_table: bool,
     /// `+ New table` was clicked — open the host slide-over (`AppState::host_open = true`).
     pub new_table: bool,
+    /// `Join table` was clicked — open the join slide-over (`AppState::join_open = true`).
+    pub join_table: bool,
 }
 
 /// Render the toolbar across the full width at [`size::TOOLBAR_H`]. `pulse` is the current eased
@@ -30,7 +33,8 @@ pub fn render(ui: &mut Ui, state: &AppState, pulse: f32) -> ToolbarResponse {
     // clusters out inside the horizontal content padding (20px in the prototype).
     let band = ui.available_rect_before_wrap();
     let band = Rect::from_min_size(band.min, Vec2::new(band.width(), size::TOOLBAR_H));
-    ui.painter().rect_filled(band, egui::CornerRadius::ZERO, Palette::TOOLBAR);
+    ui.painter()
+        .rect_filled(band, egui::CornerRadius::ZERO, Palette::TOOLBAR);
     ui.painter().hline(
         band.x_range(),
         band.max.y - 0.5,
@@ -38,9 +42,11 @@ pub fn render(ui: &mut Ui, state: &AppState, pulse: f32) -> ToolbarResponse {
     );
 
     let inner = band.shrink2(Vec2::new(20.0, 0.0));
-    let mut content = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(
-        Layout::left_to_right(Align::Center),
-    ));
+    let mut content = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(inner)
+            .layout(Layout::left_to_right(Align::Center)),
+    );
     content.spacing_mut().item_spacing = Vec2::new(12.0, 0.0);
 
     // Left cluster: title, active chip, optional "need you" chip, muted chips-in-play readout.
@@ -68,6 +74,9 @@ pub fn render(ui: &mut Ui, state: &AppState, pulse: f32) -> ToolbarResponse {
         ui.spacing_mut().item_spacing = Vec2::new(14.0, 0.0);
         if new_table_button(ui).clicked() {
             resp.new_table = true;
+        }
+        if join_table_button(ui).clicked() {
+            resp.join_table = true;
         }
         if next_table_button(ui).clicked() {
             resp.next_table = true;
@@ -135,7 +144,9 @@ fn keyboard_legend(ui: &mut Ui) {
     let mut width = 0.0;
     let mut height = 0.0f32;
     for (text, font, color) in parts.iter() {
-        let g = ui.painter().layout_no_wrap(text.to_string(), (*font).clone(), *color);
+        let g = ui
+            .painter()
+            .layout_no_wrap(text.to_string(), (*font).clone(), *color);
         width += g.size().x;
         height = height.max(g.size().y);
     }
@@ -147,7 +158,11 @@ fn keyboard_legend(ui: &mut Ui) {
     let mut x = rect.min.x;
     for (text, font, color) in parts.iter() {
         let g = painter.layout_no_wrap(text.to_string(), (*font).clone(), *color);
-        painter.galley(egui::pos2(x, rect.center().y - g.size().y / 2.0), g.clone(), *color);
+        painter.galley(
+            egui::pos2(x, rect.center().y - g.size().y / 2.0),
+            g.clone(),
+            *color,
+        );
         x += g.size().x;
     }
 }
@@ -164,8 +179,14 @@ fn next_table_button(ui: &mut Ui) -> egui::Response {
     let inner_gap = 7.0;
     let tag_pad = Vec2::new(6.0, 2.0);
 
-    let label_g = ui.painter().layout_no_wrap(label.to_string(), label_font.clone(), Palette::TEXT_PRIMARY);
-    let tag_g = ui.painter().layout_no_wrap(tag.to_string(), tag_font.clone(), Color32::from_rgb(0x7a, 0x7f, 0x88));
+    let label_g =
+        ui.painter()
+            .layout_no_wrap(label.to_string(), label_font.clone(), Palette::TEXT_PRIMARY);
+    let tag_g = ui.painter().layout_no_wrap(
+        tag.to_string(),
+        tag_font.clone(),
+        Color32::from_rgb(0x7a, 0x7f, 0x88),
+    );
     let tag_size = tag_g.size() + tag_pad * 2.0;
 
     let content_w = label_g.size().x + inner_gap + tag_size.x;
@@ -186,19 +207,75 @@ fn next_table_button(ui: &mut Ui) -> egui::Response {
 
     let painter = ui.painter();
     let label_pos = egui::pos2(rect.min.x + pad.x, rect.center().y);
-    let label_color = if resp.hovered() { Palette::TEXT_PRIMARY } else { Palette::TEXT_PRIMARY_DIM };
-    painter.text(label_pos, egui::Align2::LEFT_CENTER, label, label_font, label_color);
+    let label_color = if resp.hovered() {
+        Palette::TEXT_PRIMARY
+    } else {
+        Palette::TEXT_PRIMARY_DIM
+    };
+    painter.text(
+        label_pos,
+        egui::Align2::LEFT_CENTER,
+        label,
+        label_font,
+        label_color,
+    );
 
     // The `Space` tag: a faint translucent-white chip with mono text.
-    let tag_min = egui::pos2(label_pos.x + label_g.size().x + inner_gap, rect.center().y - tag_size.y / 2.0);
+    let tag_min = egui::pos2(
+        label_pos.x + label_g.size().x + inner_gap,
+        rect.center().y - tag_size.y / 2.0,
+    );
     let tag_rect = Rect::from_min_size(tag_min, tag_size);
-    theme::fill_rect(ui, tag_rect, rad::BADGE, Palette::BORDER_05, egui::Stroke::NONE);
+    theme::fill_rect(
+        ui,
+        tag_rect,
+        rad::BADGE,
+        Palette::BORDER_05,
+        egui::Stroke::NONE,
+    );
     painter.text(
         tag_rect.center(),
         egui::Align2::CENTER_CENTER,
         tag,
         tag_font,
         Color32::from_rgb(0x7a, 0x7f, 0x88),
+    );
+    resp
+}
+
+/// The `Join table` neutral surface button (mono-free secondary label) that opens the join slide-over
+/// to paste a `tcpoker://` invite. Sized to its label; lifts its border on hover.
+fn join_table_button(ui: &mut Ui) -> egui::Response {
+    let label = "Join table";
+    let font = theme::ui_font(12.0, Weight::Medium);
+    let pad = Vec2::new(12.0, 7.0);
+
+    let galley =
+        ui.painter()
+            .layout_no_wrap(label.to_string(), font.clone(), Palette::TEXT_PRIMARY);
+    let size = galley.size() + pad * 2.0;
+
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let stroke = if resp.hovered() {
+        theme::hairline(Palette::BORDER_10)
+    } else {
+        theme::hairline(Palette::BORDER_07)
+    };
+    theme::fill_rect(ui, rect, rad::INPUT, Palette::SURFACE, stroke);
+    let color = if resp.hovered() {
+        Palette::TEXT_PRIMARY
+    } else {
+        Palette::TEXT_PRIMARY_DIM
+    };
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        font,
+        color,
     );
     resp
 }
@@ -210,7 +287,9 @@ fn new_table_button(ui: &mut Ui) -> egui::Response {
     let font = theme::ui_font(13.0, Weight::SemiBold);
     let pad = Vec2::new(14.0, 8.0);
 
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font.clone(), Palette::ON_ACCENT);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font.clone(), Palette::ON_ACCENT);
     let size = galley.size() + pad * 2.0;
 
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
@@ -224,7 +303,12 @@ fn new_table_button(ui: &mut Ui) -> egui::Response {
         Palette::ACCENT
     };
     theme::fill_rect(ui, rect, rad::INPUT, fill, egui::Stroke::NONE);
-    ui.painter()
-        .text(rect.center(), egui::Align2::CENTER_CENTER, label, font, Palette::ON_ACCENT);
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        font,
+        Palette::ON_ACCENT,
+    );
     resp
 }

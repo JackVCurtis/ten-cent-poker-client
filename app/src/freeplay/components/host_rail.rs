@@ -19,8 +19,10 @@ use crate::freeplay::widgets::{self, StepperClick};
 /// What the rail produced this frame.
 #[derive(Clone, Copy, Default)]
 pub struct HostRailResponse {
-    /// `Create free table` was clicked — append a new free table and (if in the slide-over) close it.
+    /// `Create free table` was clicked — start a real host connection.
     pub create: bool,
+    /// `Join a table instead` was clicked (standalone rail only) — open the join slide-over.
+    pub join: bool,
 }
 
 /// A free-table quick-start template: a one-tap preset that fills several `HostConfig` fields at once
@@ -34,10 +36,30 @@ struct Preset {
 
 /// Free-play quick-start templates (chips-only analogues of the prototype's staked presets).
 const PRESETS: &[Preset] = &[
-    Preset { label: "NLH · 6-max", game: Game::Holdem, seats: 6, blinds: "20 / 40" },
-    Preset { label: "PLO · 6-max", game: Game::Omaha, seats: 6, blinds: "10 / 20" },
-    Preset { label: "NLH · 9-max", game: Game::Holdem, seats: 9, blinds: "40 / 80" },
-    Preset { label: "Stud · 8-max", game: Game::Stud, seats: 8, blinds: "10 / 20" },
+    Preset {
+        label: "NLH · 6-max",
+        game: Game::Holdem,
+        seats: 6,
+        blinds: "20 / 40",
+    },
+    Preset {
+        label: "PLO · 6-max",
+        game: Game::Omaha,
+        seats: 6,
+        blinds: "10 / 20",
+    },
+    Preset {
+        label: "NLH · 9-max",
+        game: Game::Holdem,
+        seats: 9,
+        blinds: "40 / 80",
+    },
+    Preset {
+        label: "Stud · 8-max",
+        game: Game::Stud,
+        seats: 8,
+        blinds: "10 / 20",
+    },
 ];
 
 /// Free-play blind levels, in chips (the prototype's staked `.10/.25 … 2/5` recast as chip strings).
@@ -106,7 +128,9 @@ pub fn render(ui: &mut Ui, state: &mut AppState, compact: bool) -> HostRailRespo
     ui.add_space(2.0);
     let sel = BLIND_LEVELS.iter().position(|b| *b == host.blinds);
     let (row1, row2) = BLIND_LEVELS.split_at(3);
-    if let Some(i) = widgets::segmented_row(ui, row1, sel.filter(|&s| s < 3).unwrap_or(usize::MAX), true) {
+    if let Some(i) =
+        widgets::segmented_row(ui, row1, sel.filter(|&s| s < 3).unwrap_or(usize::MAX), true)
+    {
         host.blinds = row1[i].to_string();
     }
     ui.add_space(8.0);
@@ -119,6 +143,15 @@ pub fn render(ui: &mut Ui, state: &mut AppState, compact: bool) -> HostRailRespo
     // --- footer CTA (no fee row above it, no signing) ---
     if widgets::primary_button(ui, "Create free table", 46.0).clicked() {
         resp.create = true;
+    }
+
+    // Standalone rail also offers a quiet "join instead" path so a guest can reach the join flow from
+    // the host control room (the slide-over variant is host-only and omits this).
+    if !compact {
+        ui.add_space(10.0);
+        if widgets::neutral_button(ui, "Join a table instead", 40.0).clicked() {
+            resp.join = true;
+        }
     }
 
     resp
@@ -155,7 +188,9 @@ fn preset_chips(ui: &mut Ui, host: &mut HostConfig) {
 fn preset_chip(ui: &mut Ui, label: &str) -> egui::Response {
     let font = theme::ui_font(12.0, Weight::Medium);
     let text_color = Color32::from_rgb(0xc6, 0xca, 0xd1);
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font.clone(), text_color);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font.clone(), text_color);
     let pad = Vec2::new(12.0, 8.0);
     let (rect, resp) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::click());
     if ui.is_rect_visible(rect) {
@@ -165,8 +200,13 @@ fn preset_chip(ui: &mut Ui, label: &str) -> egui::Response {
             theme::hairline(Palette::BORDER_07)
         };
         theme::fill_rect(ui, rect, rad::INPUT, Palette::SURFACE, stroke);
-        ui.painter()
-            .text(rect.center(), egui::Align2::CENTER_CENTER, label, font, text_color);
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            label,
+            font,
+            text_color,
+        );
     }
     resp
 }

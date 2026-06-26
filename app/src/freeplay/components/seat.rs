@@ -5,7 +5,7 @@
 //! point; this fn paints the pill centred on that point.
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2, Ui,
+    self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Stroke, StrokeKind, Ui, Vec2,
 };
 
 use crate::freeplay::cards;
@@ -39,7 +39,11 @@ const NAME_MAX_W: f32 = 64.0;
 pub fn render(ui: &mut Ui, center: Pos2, seat: &Seat, style: SeatStyle, glow_pulse: f32) {
     match seat {
         Seat::Empty => render_open(ui, center),
-        Seat::Filled { name, stack, folded } => {
+        Seat::Filled {
+            name,
+            stack,
+            folded,
+        } => {
             // The model carries `folded`; the felt may also pass it via `style.folded`. Treat either
             // as folded so dimming is robust regardless of which path the caller resolved.
             let folded = *folded || style.folded;
@@ -51,7 +55,9 @@ pub fn render(ui: &mut Ui, center: Pos2, seat: &Seat, style: SeatStyle, glow_pul
 /// A dashed "Open" pill: dashed hairline border + muted `Open` label, centred on `center`.
 fn render_open(ui: &mut Ui, center: Pos2) {
     let font = theme::ui_font(10.0, Weight::Medium);
-    let galley = ui.painter().layout_no_wrap("Open".to_string(), font.clone(), Palette::TEXT_MUTED_DIM);
+    let galley =
+        ui.painter()
+            .layout_no_wrap("Open".to_string(), font.clone(), Palette::TEXT_MUTED_DIM);
     // Prototype open-seat padding is `5px 9px`.
     let pad = Vec2::new(9.0, 5.0);
     let size = galley.size() + pad * 2.0;
@@ -66,8 +72,13 @@ fn render_open(ui: &mut Ui, center: Pos2) {
         Color32::from_rgba_premultiplied(3, 3, 3, 3),
     );
     paint_dashed_border(ui, rect, rad::INPUT as f32, Palette::BORDER_DASH);
-    ui.painter()
-        .text(rect.center(), Align2::CENTER_CENTER, "Open", font, Palette::TEXT_MUTED_DIM);
+    ui.painter().text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        "Open",
+        font,
+        Palette::TEXT_MUTED_DIM,
+    );
 }
 
 /// A seated-player pill: avatar circle + name/stack column + optional dealer chip.
@@ -88,16 +99,28 @@ fn render_filled(
     let stack_str = format_chips(stack);
 
     // Name column width is the wider of name/stack, capped at NAME_MAX_W (name ellipsizes).
-    let name_galley = ui.painter().layout_no_wrap(name.to_string(), name_font.clone(), Palette::TEXT_PRIMARY_DIM);
-    let stack_galley = ui.painter().layout_no_wrap(stack_str.clone(), stack_font.clone(), Palette::ACCENT_STACK);
-    let text_col_w = name_galley.size().x.min(NAME_MAX_W).max(stack_galley.size().x.min(NAME_MAX_W));
+    let name_galley = ui.painter().layout_no_wrap(
+        name.to_string(),
+        name_font.clone(),
+        Palette::TEXT_PRIMARY_DIM,
+    );
+    let stack_galley =
+        ui.painter()
+            .layout_no_wrap(stack_str.clone(), stack_font.clone(), Palette::ACCENT_STACK);
+    let text_col_w = name_galley
+        .size()
+        .x
+        .min(NAME_MAX_W)
+        .max(stack_galley.size().x.min(NAME_MAX_W));
     let text_col_h = name_galley.size().y + stack_galley.size().y;
 
     let mut content_w = AVATAR_D + GAP + text_col_w;
     if style.dealer {
         content_w += GAP + DEALER_D;
     }
-    let content_h = AVATAR_D.max(text_col_h).max(if style.dealer { DEALER_D } else { 0.0 });
+    let content_h = AVATAR_D
+        .max(text_col_h)
+        .max(if style.dealer { DEALER_D } else { 0.0 });
     let size = Vec2::new(content_w, content_h) + PAD * 2.0;
     let rect = Rect::from_center_size(center, size);
     if !ui.is_rect_visible(rect) {
@@ -130,8 +153,13 @@ fn render_filled(
     } else {
         theme::hairline(dim(Palette::BORDER_07, alpha))
     };
-    ui.painter()
-        .rect(rect, CornerRadius::same(rad::INPUT), fill, stroke, StrokeKind::Inside);
+    ui.painter().rect(
+        rect,
+        CornerRadius::same(rad::INPUT),
+        fill,
+        stroke,
+        StrokeKind::Inside,
+    );
 
     // --- inner content laid out left→right ---
     let inner_left = rect.min.x + PAD.x;
@@ -142,9 +170,13 @@ fn render_filled(
     let (avatar_fill, initial_color) = if acting {
         (Palette::ACCENT, Palette::ON_ACCENT)
     } else {
-        (cards::avatar_color(style.index), Color32::from_rgb(0xcd, 0xd2, 0xda))
+        (
+            cards::avatar_color(style.index),
+            Color32::from_rgb(0xcd, 0xd2, 0xda),
+        )
     };
-    ui.painter().circle_filled(avatar_center, AVATAR_D / 2.0, dim(avatar_fill, alpha));
+    ui.painter()
+        .circle_filled(avatar_center, AVATAR_D / 2.0, dim(avatar_fill, alpha));
     let initial = name.chars().next().unwrap_or('?').to_ascii_uppercase();
     ui.painter().text(
         avatar_center,
@@ -176,7 +208,11 @@ fn render_filled(
     // Dealer chip: a small white `D` disc at the far right.
     if style.dealer {
         let chip_center = Pos2::new(rect.max.x - PAD.x - DEALER_D / 2.0, cy);
-        ui.painter().circle_filled(chip_center, DEALER_D / 2.0, dim(Palette::TEXT_PRIMARY_DIM, alpha));
+        ui.painter().circle_filled(
+            chip_center,
+            DEALER_D / 2.0,
+            dim(Palette::TEXT_PRIMARY_DIM, alpha),
+        );
         ui.painter().text(
             chip_center,
             Align2::CENTER_CENTER,
@@ -236,20 +272,48 @@ fn paint_dashed_border(ui: &Ui, rect: Rect, radius: f32, color: Color32) {
     let painter = ui.painter();
 
     // Straight edges, each inset by `r` so dashes don't overrun the rounded corners.
-    let top = [Pos2::new(rect.min.x + r, rect.min.y), Pos2::new(rect.max.x - r, rect.min.y)];
-    let bottom = [Pos2::new(rect.min.x + r, rect.max.y), Pos2::new(rect.max.x - r, rect.max.y)];
-    let left = [Pos2::new(rect.min.x, rect.min.y + r), Pos2::new(rect.min.x, rect.max.y - r)];
-    let right = [Pos2::new(rect.max.x, rect.min.y + r), Pos2::new(rect.max.x, rect.max.y - r)];
+    let top = [
+        Pos2::new(rect.min.x + r, rect.min.y),
+        Pos2::new(rect.max.x - r, rect.min.y),
+    ];
+    let bottom = [
+        Pos2::new(rect.min.x + r, rect.max.y),
+        Pos2::new(rect.max.x - r, rect.max.y),
+    ];
+    let left = [
+        Pos2::new(rect.min.x, rect.min.y + r),
+        Pos2::new(rect.min.x, rect.max.y - r),
+    ];
+    let right = [
+        Pos2::new(rect.max.x, rect.min.y + r),
+        Pos2::new(rect.max.x, rect.max.y - r),
+    ];
     for seg in [top, bottom, left, right] {
         painter.add(egui::Shape::dashed_line(&seg, stroke, dash, gap));
     }
 
     // Solid quarter-arc corners (small enough that dashing them adds no fidelity).
     let corners = [
-        (Pos2::new(rect.min.x + r, rect.min.y + r), std::f32::consts::PI, 1.5 * std::f32::consts::PI),
-        (Pos2::new(rect.max.x - r, rect.min.y + r), 1.5 * std::f32::consts::PI, 2.0 * std::f32::consts::PI),
-        (Pos2::new(rect.max.x - r, rect.max.y - r), 0.0, 0.5 * std::f32::consts::PI),
-        (Pos2::new(rect.min.x + r, rect.max.y - r), 0.5 * std::f32::consts::PI, std::f32::consts::PI),
+        (
+            Pos2::new(rect.min.x + r, rect.min.y + r),
+            std::f32::consts::PI,
+            1.5 * std::f32::consts::PI,
+        ),
+        (
+            Pos2::new(rect.max.x - r, rect.min.y + r),
+            1.5 * std::f32::consts::PI,
+            2.0 * std::f32::consts::PI,
+        ),
+        (
+            Pos2::new(rect.max.x - r, rect.max.y - r),
+            0.0,
+            0.5 * std::f32::consts::PI,
+        ),
+        (
+            Pos2::new(rect.min.x + r, rect.max.y - r),
+            0.5 * std::f32::consts::PI,
+            std::f32::consts::PI,
+        ),
     ];
     for (c, a0, a1) in corners {
         let n = 4;

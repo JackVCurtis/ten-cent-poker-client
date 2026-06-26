@@ -51,7 +51,9 @@ const CHECK_BG: Color32 = Color32::from_rgb(0x1a, 0x1d, 0x23);
 /// grid owns the Processing→Done timer; this only paints the current stage and surfaces clicks.
 pub fn render(ui: &mut Ui, state: &AppState) -> LeaveResponse {
     let mut resp = LeaveResponse::default();
-    let Some(leave) = state.leave else { return resp };
+    let Some(leave) = state.leave else {
+        return resp;
+    };
     let name = state.table(leave.id).map(|t| t.name.as_str()).unwrap_or("");
     // "In a hand" mirrors the prototype's `coInHand: cot.yourTurn` — a hand is live when it is your turn.
     let in_hand = state.table(leave.id).map(|t| t.your_turn).unwrap_or(false);
@@ -147,7 +149,13 @@ fn paint_modal(
 
     // Modal frame: `#0e0f13` + 0.10 hairline, 16px radius. The prototype's big drop shadow has no egui
     // analogue, so the border carries the panel edge on its own.
-    theme::fill_rect(ui, frame, rad::MODAL, Palette::MODAL_BG, theme::hairline(Palette::BORDER_10));
+    theme::fill_rect(
+        ui,
+        frame,
+        rad::MODAL,
+        Palette::MODAL_BG,
+        theme::hairline(Palette::BORDER_10),
+    );
 
     let inner = Rect::from_min_size(
         Pos2::new(frame.left() + MODAL_PAD, frame.top() + MODAL_PAD),
@@ -237,7 +245,10 @@ fn paint_in_hand_note(ui: &mut Ui, inner_w: f32) {
 
     theme::fill_rect(ui, rect, 10, NOTE_BG, theme::hairline(Palette::BORDER_07));
     // Amber dot, vertically aligned to the first text line.
-    let dot_center = Pos2::new(rect.left() + pad.x + dot_d / 2.0, rect.top() + pad.y + dot_d / 2.0);
+    let dot_center = Pos2::new(
+        rect.left() + pad.x + dot_d / 2.0,
+        rect.top() + pad.y + dot_d / 2.0,
+    );
     theme::dot(ui, dot_center, dot_d, Palette::TIMER_AMBER);
     ui.painter().galley(
         Pos2::new(dot_center.x + dot_d / 2.0 + inner_gap, rect.top() + pad.y),
@@ -296,9 +307,15 @@ fn paint_spinner(ui: &mut Ui, inner_w: f32, diameter: f32, clock_ms: f32) {
     let mut pts: Vec<Pos2> = Vec::with_capacity(seg + 1);
     for i in 0..=seg {
         let a = head + sweep * (i as f32 / seg as f32);
-        pts.push(Pos2::new(center.x + radius * a.cos(), center.y + radius * a.sin()));
+        pts.push(Pos2::new(
+            center.x + radius * a.cos(),
+            center.y + radius * a.sin(),
+        ));
     }
-    painter.add(egui::Shape::line(pts, Stroke::new(3.0, Palette::TEXT_SECONDARY)));
+    painter.add(egui::Shape::line(
+        pts,
+        Stroke::new(3.0, Palette::TEXT_SECONDARY),
+    ));
 }
 
 // ---------------------------------------------------------------------------
