@@ -97,6 +97,16 @@ pub fn render(ui: &mut Ui, state: &mut AppState) -> SlideoverResponse {
         .fixed_pos(panel_rect.min)
         .show(&ctx, |ui| {
             ui.set_clip_rect(panel_rect);
+            // Swallow pointer events across the whole panel so clicks on its empty regions don't
+            // hit-test through to the full-window backdrop and dismiss the slide-over. The painter
+            // fills below register no widget, so without this only the rail's controls would block
+            // the scrim. Registered first so the close `✕` / rail / CTA — added afterwards on this
+            // same layer — still win the hit-test.
+            ui.interact(
+                panel_rect,
+                ui.id().with("slideover_panel_guard"),
+                Sense::click_and_drag(),
+            );
             // Panel base + the left-edge hairline (the prototype's `box-shadow` drop is omitted —
             // egui has no blur — leaving the border alone to separate the panel from the scrim).
             ui.painter()

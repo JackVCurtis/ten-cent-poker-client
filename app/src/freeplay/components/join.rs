@@ -83,6 +83,16 @@ pub fn render(ui: &mut Ui, state: &mut AppState) -> JoinResponse {
         .fixed_pos(panel_rect.min)
         .show(&ctx, |ui| {
             ui.set_clip_rect(panel_rect);
+            // Swallow pointer events across the whole panel so clicks on its empty regions don't
+            // hit-test through to the full-window backdrop and dismiss the slide-over. The panel's
+            // own painter fills don't register a widget, so without this only the small cluster of
+            // controls would block the scrim. Registered first so the close `✕` / paste field /
+            // `Join` CTA — added afterwards on this same layer — still win the hit-test.
+            ui.interact(
+                panel_rect,
+                ui.id().with("join_panel_guard"),
+                Sense::click_and_drag(),
+            );
             ui.painter()
                 .rect_filled(panel_rect, egui::CornerRadius::ZERO, PANEL_BG);
             ui.painter().vline(
